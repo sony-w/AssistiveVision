@@ -28,10 +28,10 @@ class ImageS3:
         Retrieve actual image
         
         Parameters:
-        key(string): image file path in S3
+            key(string): image file path in S3
         
         Returns:
-        image: numpy array of image's pixel value with dimension of (height, width, depth)
+            image: numpy array of image's pixel value with dimension of (height, width, depth)
         """
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=key)['Body']
