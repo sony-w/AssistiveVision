@@ -111,6 +111,8 @@ class VizwizDataset(Dataset):
         
         print('done!!')
     
+    def getVocab(self):
+        return self.vocab, self.word2idx, self.idx2word, self.max_len
     
     @property
     def pad_value(self):
