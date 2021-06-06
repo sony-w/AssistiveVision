@@ -56,6 +56,9 @@ class VizwizDataset(Dataset):
     
     
     def loadImageAndCorpus(self):
+        """
+            Load images to memory and tokenize image captions
+        """
         
         def _load_blob(blob, path, f):
             _fpath = ''.join([path, '/', f])
