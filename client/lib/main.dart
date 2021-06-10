@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:client/api/audible_guide.dart';
 import 'package:flutter/material.dart';
 
 Future<void> main() async {
@@ -42,6 +43,7 @@ class TakePictureScreen extends StatefulWidget {
 class TakePictureScreenState extends State<TakePictureScreen> {
   late CameraController _controller;
   late Future<void> _initializeControllerFuture;
+  late AudibleGuide _guide;
 
   @override
   void initState() {
@@ -57,6 +59,8 @@ class TakePictureScreenState extends State<TakePictureScreen> {
 
     // Next, initialize the controller. This returns a Future.
     _initializeControllerFuture = _controller.initialize();
+
+    _guide = AudibleGuide('en-US');
   }
 
   @override
@@ -85,6 +89,9 @@ class TakePictureScreenState extends State<TakePictureScreen> {
                   try {
                     // Ensure that the camera is initialized.
                     await _initializeControllerFuture;
+
+                    // Let the user know we're taking a pic
+                    _guide.sayTakingPicture();
 
                     // Attempt to take a picture and get the file `image`
                     // where it was saved.
