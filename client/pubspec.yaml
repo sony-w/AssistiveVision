@@ -24,6 +24,8 @@ dependencies:
   flutter:
     sdk: flutter
   camera:
+  flutter_tts:
+  http: ^0.13.3
   path:
   path_provider:
 
