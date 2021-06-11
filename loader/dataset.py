@@ -41,7 +41,7 @@ class VizwizDataset(Dataset):
         self.device = torch.device(device)
         self.torch = torch.cuda if (self.device.type == 'cuda') else torch
         
-        self.__get_item__fn = self.__get_item__corpus if ret_type == 'corpus' else self.__get_item__tensor
+        self.__getitem__fn = self.__getitem__corpus if ret_type == 'corpus' else self.__getitem__tensor
 
         ann_path = os.path.join('annotations', ''.join([self.dtype, '.json']))
         vizwiz = VizWiz(annotation_file=ann_path)
@@ -118,13 +118,13 @@ class VizwizDataset(Dataset):
     def pad_value(self):
         return 0
     
-    def __get_item__(self, idx: int):
-        return self.__get_item__fn(idx)
+    def __getitem__(self, idx: int):
+        return self.__getitem__fn(idx)
 
     def __len__(self):
         return len(self.df)
 
-    def __get_item__corpus(self, idx: int):
+    def __getitem__corpus(self, idx: int):
         """
         Retrieve image blob, tokens, and tokens count from given index in raw format
         
@@ -146,7 +146,7 @@ class VizwizDataset(Dataset):
         return img, row['tokens'], row['tokens_count']
     
     
-    def __get_item__tensor(self, idx: int):
+    def __getitem__tensor(self, idx: int):
         """
         Retrieve image blob, tokens, and tokens count from given index in tensor format
         
