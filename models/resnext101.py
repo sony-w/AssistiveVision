@@ -137,7 +137,7 @@ class Decoder(nn.Module):
     
 class EncoderAttention(nn.Module):
     
-    def __init__(self, encoded_image_size=9):
+    def __init__(self, encoded_image_size=14):
         
         super(EncoderAttention, self).__init__()
         self.encoded_image_size = encoded_image_size
@@ -148,7 +148,7 @@ class EncoderAttention(nn.Module):
         self.resnext = nn.Sequential(*modules)
         # resize the image to allow input images of variable size
         self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
-        
+        self.fine_tune()
     
     def forward(self, images):
         
@@ -158,6 +158,20 @@ class EncoderAttention(nn.Module):
         
         return outputs
     
+    
+    def fine_tune(self, fine_tune=False):
+        """
+        Allow or prevent the gradients computation for convolutional blocks
+        """
+        
+        for p in self.resnext.parameters():
+            p.requires_grad = False
+        
+        # only fine-tune convolutional blocks 2 through 4
+        for c in list(self.resnext.children())[5:]:
+            for p in c.parameters():
+                p.requires_grad = fine_tune
+        
 
 class Attention(nn.Module):
     
@@ -165,19 +179,19 @@ class Attention(nn.Module):
         
         super(Attention, self).__init__()
         # linear layer to transform encoded image
-        self.encoderAtt = nn.Linear(encoder_dim, attention_dim)
+        self.encoder_att = nn.Linear(encoder_dim, attention_dim)
         # linear layer to transform decoder's output
-        self.decoderAtt = nn.Linear(encoder_dim, attention_dim)
+        self.decoder_att = nn.Linear(encoder_dim, attention_dim)
         # linear layer to compute values to be softmax-ed
-        self.fullAtt = nn.Linear(attention_dim, 1)
-        self.relu = nn.Relu()
+        self.full_att = nn.Linear(attention_dim, 1)
+        self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
         
     
     def forward(self, encoder_outputs, decoder_hiddens):
-        attention_1 = self.encoderAtt(encoder_outputs)
-        attention_2 = self.decoderAtt(decoder_hiddens)
-        attention = self.fullAtt(self.relu(attention_1 + attention_2.unsqueeze(1))).squeeze(2)
+        attention_1 = self.encoder_att(encoder_outputs)
+        attention_2 = self.decoder_att(decoder_hiddens)
+        attention = self.full_att(self.relu(attention_1 + attention_2.unsqueeze(1))).squeeze(2)
         
         alpha = self.softmax(attention)
         attention_weighted_encoding = (encoder_outputs * alpha.unsqueeze(2)).sum(dim=1)
@@ -187,19 +201,19 @@ class Attention(nn.Module):
 
 class DecoderAttention(nn.Module):
     
-    def __init__(self, vocab, embedding_matrix=None, embedding_size=256, encoder_dim=2048, decoder_dim=512,
-                attention_dim=512, dropout_ratio=0.5, alpha_c=1, train_embedding=True)
+    # embedding_size=256, encoder_dim=2048, decoder_dim=512, attention_dim=512, dropout=0.5, alpha_c=1
+    def __init__(self, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5,
+                 alpha_c=1, embedding_matrix=None, train_embedding=True)
         
         super(DecoderAttention, self).__init__()
-        self.vocab = vocab
-        self.vocab_size = len(vocab)
+        self.vocab_size = vocab_size
         self.encoder_dim = encoder_dim
         self.decoder_dim = decoder_dim
         self.attention_dim = attention_dim
         self.alpha_c = alpha_c
         
         self.attention = Attention(encoder_dim, decoder_dim, attention_dim)
-        self.embedding = embedding_layer(num_embeddings=vocab_size, embedding_dim=embedding_size,        # nn.Embedding(vocab_size, embedding_size)
+        self.embedding = embedding_layer(num_embeddings=vocab_size, embedding_dim=embedding_dim,        # nn.Embedding(vocab_size, embedding_dim)
                                          embedding_matrix=embedding_matrix, trainable=train_embedding)
         
         # linear layers to determine initial states of LSTMs 
@@ -211,15 +225,28 @@ class DecoderAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
         
         # LSTM
-        self.decode_step = nn.LSTMCell(embedding_size + encoder_dim, decoder_dim, bias=True)
+        self.decode_step = nn.LSTMCell(embedding_dim + encoder_dim, decoder_dim, bias=True)
         # dropout layer
-        self.dropout = nn.Dropout(p=dropout_ratio)
+        self.dropout = nn.Dropout(p=dropout)
+        # linear layer to find scores over vocabulary
+        self.fc = nn.Linear(decoder_dim, vocab_size)
         
-        self.criterion = nn.CrossEntropyLoss()
+        #self.criterion = nn.CrossEntropyLoss()
         
-        self.linear_o = nn.Linear(embed_size, self.vocab_size)
-        self.linear_h = nn.Linear(decoder_dim, embed_size)
-        self.linear_z = nn.Linear(encoder_dim, embed_size)
+        #self.linear_o = nn.Linear(embed_size, self.vocab_size)
+        #self.linear_h = nn.Linear(decoder_dim, embed_size)
+        #self.linear_z = nn.Linear(encoder_dim, embed_size)
+        
+        self.init_weights()
+    
+    
+    def init_weights(self):
+        """
+        Initialize parameters with values from the uniform distribution for easier convergence
+        """
+        self.embedding.weight.data.uniform_(-0.1, 0.1)
+        self.fc.bias.data.fill_(0)
+        self.fc.weight.data.uniform_(-0.1, 0.1)
     
     
     def init_hidden_states(self, encoder_outputs):
@@ -240,10 +267,16 @@ class DecoderAttention(nn.Module):
 
         # flatten image
         encoder_outputs = encoder_outputs.view(batch_size, -1, encoder_dim)
-        
         num_pixels = encoder_outputs.size(1)
+    
+        # sort input data (encoder_outputs) by decreasing lengths
+        caption_len, sorted_idx = caption_len.squeeze(1).sort(dim=0, descending=True)
+        encoder_outputs = encoder_outputs[sorted_idx]
+        encoded_captions = encoded_captions[sorted_idx]
+            
         embeddings = self.embedding(encoded_captions).type(torch.FloatTensor).to(device)
         h, c = self.init_hidden_states(encoder_outputs)
+        decode_len = (caption_len - 1).tolist()
         
         # placehoder tensors to keep word prediction scores and alphas
         predictions = torch.zeros(batch_size, max(caption_len), self.vocab_size)
@@ -252,27 +285,28 @@ class DecoderAttention(nn.Module):
         # For each time-step, decode by attention-weighing the encoder's output
         # based on the previous decoder's hidden state output
         # then predict a new word in the decoder with the previous word and the attention weighted encoding
-        for t in range(max(caption_len)):
+        for t in range(max(decode_len)):
             batch_size_t = sum([l > t for l in caption_len])
-            attention, alpha = self.attention(encoder_outputs[:batch_size_t], h[:batch_size_t])
+            attention_weighted_encoding, alpha = self.attention(encoder_outputs[:batch_size_t], h[:batch_size_t])
             
             # gating scalar
             gate = self.sigmoid(self.f_beta(h[:batch_size_t]))
-            attention = gate * attention
+            attention_weighted_encoding = gate * attention_weighted_encoding
             
             h, c = self.decode_step(
-                torch.cat([embeddings[:batch_size_t, t, :], attention], dim=1),
+                torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding], dim=1),
                 (h[:batch_size_t], c[:batch_size_t])
             )
             
-            h_embedded = self.linear_h(h)
-            attention_embedded = self.linear_z(attention)
-            preds = self.linear_o(self.dropout(embeddings[:batch_size_t, t, :] + h_embedded + attention_embedded))
+            #h_embedded = self.linear_h(h)
+            #attention_embedded = self.linear_z(attention)
+            #preds = self.linear_o(self.dropout(embeddings[:batch_size_t, t, :] + h_embedded + attention_embedded))
             
+            preds = self.fc(self.dropout(h))
             predictions[:batch_size_t, t, :] = preds
             alphas[:batch_size_t, t, :] = alpha
         
-        return predictions, alphas
+        return predictions, encoded_captions, decode_len, alphas, sorted_idx
     
     def loss(self, outputs, targets, alphas):
         
@@ -282,89 +316,45 @@ class DecoderAttention(nn.Module):
         return loss
     
     
-    def sample(self, features, states=None, max_len=40):
+    def sample(self, features, startseq_idx, states=None, max_len=40, return_alpha=False):
         
-        sample_ids = []
         batch_size = features.size(0)
-        encoder_dim = features.size(-1)
+        encoder_dim = features.size(3) #features.size(-1)
+        encoder_img_size = features.size(1)
         
         features = features.view(batch_size, -1, encoder_dim)
         num_pixels = features.size(1)
         
-        prev_word = torch.LongTensor([[self.vocab.word2idx['<start>']]]).to(device)
         h, c = self.init_hidden_states(features)
-        
+
+        sample_ids, alphas = [], []        
+
+        prev_word = torch.LongTensor([[startseq_idx]] * batch_size).to(features.device) # torch.LongTensor([[self.vocab.word2idx['<start>']]]).to(device)
+
         for t in range(max_len):
             embeddings = self.embedding(prev_word).squeeze(1)
-            attention, _ = self.attention(features, h)
+            attention, alpha = self.attention(features, h)
+            alpha = alpha.view(-1, encoder_img_size, encoder_img_size).unsqueeze(1)
+            
             gate = self.sigmoid(self.f_beta(h))
             
             attention = gate * attention
             h, c = self.decode_step(torch.cat([embeddings, attention], dim=1), (h, c))
             
-            h_embedded = self.linear_h(h)
-            attention_embedded = self.linear_z(h)
-            preds = self.linear_o(self.dropout(embeddings + h_embedded + attention_embedded))
+            #h_embedded = self.linear_h(h)
+            #attention_embedded = self.linear_z(h)
+            #preds = self.linear_o(self.dropout(embeddings + h_embedded + attention_embedded))
             
-            _, predicted = torch.max(preds, dim=1)
+            preds = self.fc(h)
+            predicted = preds.argmax(1) #torch.max(preds, dim=1)
             
             prev_word = predicted.unsqueeze(1)
             sample_ids.append(predicted)
+            alphas.append(alpha)
         
         sample_ids = torch.stack(sample_ids, 1)
         
-        return sample_ids
-    
-    
-    def sample_beam_search(self, features, states=None, max_len=40, beam_width=5):
-
-        sample_ids = []
-        batch_size = features.size(0)
-        encoder_dim = features.size(-1)
-        
-        features = features.view(batch_size, -1, encoder_dim)
-        num_pixels = features.size(1)
-        
-        prev_word = torch.LongTensor([[self.vocab.word2idx['<start>']]]).to(device)
-        h, c = self.init_hidden_states(features)
-        
-        idx_sequences = [[[prev_word], 0.0, features, states, h, c]]
-        
-        for t in range(max_len):
-            # placeholder for all candidates at each step
-            candidates = []
-            # predict the next word idx for each of the top sequences
-            for idx_seq in idx_sequences:
-                
-                embeddings = self.embedding(idx_seq[0]).squeeze(1)
-                attention, _ = self.attention(idx_seq[2], idx_seq[4])
-                gate = self.sigmoid(self.f_beta(idx_seq[4]))
-
-                attention = gate * attention
-                h, c = self.decode_step(torch.cat([embeddings, attention], dim=1), (idx_seq[4], idx_seq[5]))
-
-                h_embedded = self.linear_h(h)
-                attention_embedded = self.linear_z(h)
-                preds = self.linear_o(self.dropout(embeddings + h_embedded + attention_embedded))
-                # transform preds to log probs to prevent floating-point underflow
-                # caused by multiplying very small probabilities
-                log_probs = F.log_softmax(preds, -1)
-                top_log_probs, top_idx = log_probs.topk(beam_width, 1)
-                top_idx = top_idx.squeeze(0)
-                # create a new set of top sentences for next round
-                for i in range(beam_width):
-                    next_idx_seq, log_prob = idx_seq[0][:], idx_seq[1]
-                    next_idx_seq.append(top_idx[i].item())
-                    log_prob += top_log_probs[0][i].item()
-                    inputs = self.embed(top_idx[i].unsqueeze(0)).unsqueeze(0)
-                    candidates.append([next_idx_seq, log_prob, inputs, states, h, c])
-            
-            # keep only the top sequences according to the total log probability
-            ordered = sorted(candidates, key=lambda x: x[1], reverse=True)
-            idx_sequences = ordered[:beam_width]
-        
-        return [idx_seq[0] for idx_seq in idx_sequences]
-            
+        return (sample_ids, torch.cat(alphas, 1)) if return_alpha else sample_ids
     
     
 class Transformer(nn.Module):
@@ -399,4 +389,30 @@ class Transformer(nn.Module):
         captions = self.decoder.sample_beam_search(features=features, max_len=max_len, beam_width=beam_width)
         
         return captions
+
+
+    
+class TransformerAttention(nn.Module):
+    
+    def __init__(self, encoded_image_size, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, 
+                 dropout=0.5, **kwargs):
         
+        super().__init__()
+        self.encoder = EncoderAttention(encoded_image_size=encoded_image_size)
+        self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim, dropout)
+        
+    
+    def forward(self, images, encoded_captions, caption_len):
+        
+        encoder_outputs = self.encoder(images)
+        decoder_outputs = self.decoder(encoder_outputs, encoded_captions, caption_len.unsqueeze(1))
+        
+        return decoder_outputs
+    
+    
+    def sample(self, images, startseq_idx, max_len=40, return_alpha=False):
+        
+        encoder_outputs = self.encoder(images)        
+        return self.decoder.sample(encoder_outputs, startseq_idx, max_len, return_alpha)
+    
+    
