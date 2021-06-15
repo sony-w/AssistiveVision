@@ -87,12 +87,14 @@ class VizWiz:
                 if key != 'annotations':
                     self.dataset[key] = value
             self.dataset['annotations'] = []
-            for annotation in dataset['annotations']:
-                if (ignore_rejected and annotation['is_rejected']) \
-                    or (ignore_precanned and annotation['is_precanned']):
-                    continue
-                else:
-                    self.dataset['annotations'].append(annotation)
+            
+            if 'annotations' in dataset:
+                for annotation in dataset['annotations']:
+                    if (ignore_rejected and annotation['is_rejected']) \
+                        or (ignore_precanned and annotation['is_precanned']):
+                        continue
+                    else:
+                        self.dataset['annotations'].append(annotation)
             
             print('Done (t={:0.2f}s)'.format(time.time()- tic))
             #self.dataset = dataset
