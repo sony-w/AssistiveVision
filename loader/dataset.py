@@ -159,9 +159,9 @@ class VizwizDataset(Dataset):
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
         if all([r in row for r in ['tokens', 'tokens_count']]):
-            return img, row['tokens'], row['tokens_count']
+            return img, row['tokens'], row['tokens_count'], fname
         
-        return img
+        return img, fname
     
     
     def __getitem__tensor(self, idx: int):
@@ -191,9 +191,9 @@ class VizwizDataset(Dataset):
             tokens_tensor = self.torch.LongTensor(self.vocabulary.max_len).fill_(self.pad_value)
             tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
             
-            return img_tensor, tokens_tensor, len(tokens)
+            return img_tensor, tokens_tensor, len(tokens), fname
         
-        return img_tensor
+        return img_tensor, fname
     
     
     def __construct_vocab(self, startseq, endseq, unkseq, padseq):
@@ -241,3 +241,6 @@ class Vocabulary:
             return self.word2idx[self.unkseq]
         else:
             return self.word2idx[token]
+        
+    def __len__(self):
+        return len(self.word2idx)
