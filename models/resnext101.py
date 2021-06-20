@@ -30,7 +30,7 @@ class Encoder(nn.Module):
         
         self.resnext = nn.Sequential(*modules)
         self.embed = nn.Sequential(
-            nn.Linear(resnext.fc.in_features, embedding_size)
+            nn.Linear(resnext.fc.in_features, embedding_size),
             nn.Dropout(p=0.5)
         )
         self.bn = nn.BatchNorm1d(embed_size, momentum=0.01)
@@ -203,7 +203,7 @@ class DecoderAttention(nn.Module):
     
     # embedding_size=256, encoder_dim=2048, decoder_dim=512, attention_dim=512, dropout=0.5, alpha_c=1
     def __init__(self, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5,
-                 alpha_c=1, embedding_matrix=None, train_embedding=True)
+                 alpha_c=1, embedding_matrix=None, train_embedding=True):
         
         super(DecoderAttention, self).__init__()
         self.vocab_size = vocab_size
@@ -395,13 +395,14 @@ class Transformer(nn.Module):
 class TransformerAttention(nn.Module):
     
     def __init__(self, encoded_image_size, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, 
-                 dropout=0.5, **kwargs):
+                 dropout=0.5, embedding_matrix=None, train_embedding=True):
         
         super().__init__()
         self.encoder = EncoderAttention(encoded_image_size=encoded_image_size)
-        self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim, dropout)
+        self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=encoder_dim, dropout=dropout, 
+                                        embedding_matrix=embedding_matrix, train_embedding=train_embedding)
+
         
-    
     def forward(self, images, encoded_captions, caption_len):
         
         encoder_outputs = self.encoder(images)

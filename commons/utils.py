@@ -90,6 +90,7 @@ def tensor_to_word_fn(idx2word, max_len=40, endseq='<end>'):
     
     return tensor_to_word
 
+
 def accuracy_fn(ignore_value:int=0):
     
     def accuracy_ignoring_value(source:torch.Tensor, target:torch.Tensor):
