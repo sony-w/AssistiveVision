@@ -85,18 +85,18 @@ class Decoder(nn.Module):
         """
 
         inputs = features.unsqueeze(1)
-        sample_ids = []
+        sampled_ids = []
 
         for i in range(max_len):
             hiddens, states = self.lstm(inputs, states)
             outputs = self.linear(hiddens.squeeze(1))
             predicted = outputs.argmax(1)
-            sample_ids.append(predicted)
+            sampled_ids.append(predicted)
             inputs = self.embed(predicted).unsqueeze(1)
 
-        sample_ids = torch.stack(sample_ids, 1)
+        sampled_ids = torch.stack(sampled_ids, 1)
 
-        return sample_ids
+        return sampled_ids
         
     
     def sample_beam_search(self, features, states=None, max_len=40, beam_width=5):
@@ -181,7 +181,7 @@ class Attention(nn.Module):
         # linear layer to transform encoded image
         self.encoder_att = nn.Linear(encoder_dim, attention_dim)
         # linear layer to transform decoder's output
-        self.decoder_att = nn.Linear(encoder_dim, attention_dim)
+        self.decoder_att = nn.Linear(decoder_dim, attention_dim)
         # linear layer to compute values to be softmax-ed
         self.full_att = nn.Linear(attention_dim, 1)
         self.relu = nn.ReLU()
@@ -196,7 +196,7 @@ class Attention(nn.Module):
         alpha = self.softmax(attention)
         attention_weighted_encoding = (encoder_outputs * alpha.unsqueeze(2)).sum(dim=1)
         
-        return attention_weighted_encoding
+        return attention_weighted_encoding, alpha
     
 
 class DecoderAttention(nn.Module):
@@ -260,7 +260,7 @@ class DecoderAttention(nn.Module):
         
         return h, c
     
-    def forward(self, encoder_outputs, encoder_captions, caption_len):
+    def forward(self, encoder_outputs, encoded_captions, caption_len):
         
         batch_size = encoder_outputs.size(0)
         encoder_dim = encoder_outputs.size(-1)
@@ -279,14 +279,14 @@ class DecoderAttention(nn.Module):
         decode_len = (caption_len - 1).tolist()
         
         # placehoder tensors to keep word prediction scores and alphas
-        predictions = torch.zeros(batch_size, max(caption_len), self.vocab_size)
-        alphas = torch.zeros(batch_size, max(caption_len), num_pixels)
+        predictions = torch.zeros(batch_size, max(decode_len), self.vocab_size).to(encoder_outputs.device)
+        alphas = torch.zeros(batch_size, max(decode_len), num_pixels).to(encoder_outputs.device)
         
         # For each time-step, decode by attention-weighing the encoder's output
         # based on the previous decoder's hidden state output
         # then predict a new word in the decoder with the previous word and the attention weighted encoding
         for t in range(max(decode_len)):
-            batch_size_t = sum([l > t for l in caption_len])
+            batch_size_t = sum([l > t for l in decode_len])
             attention_weighted_encoding, alpha = self.attention(encoder_outputs[:batch_size_t], h[:batch_size_t])
             
             # gating scalar
@@ -317,19 +317,19 @@ class DecoderAttention(nn.Module):
     
     
     def sample(self, features, startseq_idx, states=None, max_len=40, return_alpha=False):
-        
+
         batch_size = features.size(0)
         encoder_dim = features.size(3) #features.size(-1)
         encoder_img_size = features.size(1)
         
         features = features.view(batch_size, -1, encoder_dim)
-        num_pixels = features.size(1)
         
         h, c = self.init_hidden_states(features)
 
-        sample_ids, alphas = [], []        
+        sampled_ids, alphas = [], []        
 
-        prev_word = torch.LongTensor([[startseq_idx]] * batch_size).to(features.device) # torch.LongTensor([[self.vocab.word2idx['<start>']]]).to(device)
+        prev_word = torch.LongTensor([[startseq_idx]] * batch_size).to(features.device) 
+        # torch.LongTensor([[self.vocab.word2idx['<start>']]]).to(device)
 
         for t in range(max_len):
             embeddings = self.embedding(prev_word).squeeze(1)
@@ -349,12 +349,12 @@ class DecoderAttention(nn.Module):
             predicted = preds.argmax(1) #torch.max(preds, dim=1)
             
             prev_word = predicted.unsqueeze(1)
-            sample_ids.append(predicted)
+            sampled_ids.append(predicted)
             alphas.append(alpha)
         
-        sample_ids = torch.stack(sample_ids, 1)
+        sampled_ids = torch.stack(sampled_ids, 1)
         
-        return (sample_ids, torch.cat(alphas, 1)) if return_alpha else sample_ids
+        return (sampled_ids, torch.cat(alphas, 1)) if return_alpha else sampled_ids
     
     
 class Transformer(nn.Module):
@@ -399,8 +399,9 @@ class TransformerAttention(nn.Module):
         
         super().__init__()
         self.encoder = EncoderAttention(encoded_image_size=encoded_image_size)
-        self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=encoder_dim, dropout=dropout, 
-                                        embedding_matrix=embedding_matrix, train_embedding=train_embedding)
+        self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=encoder_dim, dropout=dropout,
+                                       embedding_matrix=embedding_matrix, train_embedding=train_embedding)
+        
 
         
     def forward(self, images, encoded_captions, caption_len):
@@ -414,6 +415,6 @@ class TransformerAttention(nn.Module):
     def sample(self, images, startseq_idx, max_len=40, return_alpha=False):
         
         encoder_outputs = self.encoder(images)        
-        return self.decoder.sample(encoder_outputs, startseq_idx, max_len, return_alpha)
+        return self.decoder.sample(encoder_outputs, startseq_idx, max_len=max_len, return_alpha=return_alpha)
     
     
