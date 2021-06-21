@@ -85,7 +85,7 @@ def tensor_to_word_fn(idx2word, max_len=40, endseq='<end>'):
         tokens = []
         for caption in captions:
             tokens.append(list(itertools.takewhile(lambda token: token != endseq, 
-                                                   map(lambda idx: idx2words[idx], iter(caption))))[1:])
+                                                   map(lambda idx: idx2word[idx], iter(caption))))[1:])
         return tokens
     
     return tensor_to_word
