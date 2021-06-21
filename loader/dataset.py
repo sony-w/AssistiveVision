@@ -13,6 +13,14 @@ from .images import ImageS3
 
 from torch.utils.data import Dataset
 from torchvision import transforms
+import torchvision.datasets as datasets
+import sys
+
+
+sys.path.append('/root/coco/PythonAPI')
+sys.path.append('/root/coco/PythonAPI/pycocotools')
+
+from pycocotools.coco import COCO
 
 
 class VizwizDataset(Dataset):
@@ -27,7 +35,8 @@ class VizwizDataset(Dataset):
                 ret_type='tensor',
                 ret_raw=False,
                 device=torch.device('cpu'),
-                partial=None):
+                partial=None,
+                data = 'vizwiz'):
 
         assert dtype in ['train', 'val', 'test'], "dtype value must be either 'train', 'val', or 'test'."
         assert ret_type in ['tensor', 'corpus', "return_type must be either 'tensor' or 'corpus'."]
@@ -42,17 +51,28 @@ class VizwizDataset(Dataset):
         self.torch = torch.cuda if (self.device.type == 'cuda') else torch
         
         self.__getitem__fn = self.__getitem__corpus if ret_type == 'corpus' else self.__getitem__tensor
-
-        ann_path = os.path.join('annotations', ''.join([self.dtype, '.json']))
-        vizwiz = VizWiz(annotation_file=ann_path)
+        self.data = data
+        if self.data == 'vizwiz':
+            ann_path = os.path.join('annotations' if self.data =='vizwiz' else 'annotations_coco', ''.join([self.dtype, '.json']))
+            vizwiz = VizWiz(annotation_file=ann_path)
+        
+        else:
+            ann_path = os.path.join('annotations_coco', ''.join([f"captions_{self.dtype}2017", '.json']))
+            vizwiz = COCO(annotation_file=ann_path)
         
         # load vizwiz to dataframe
         self.df = pd.DataFrame.from_dict(vizwiz.dataset['annotations'], orient='columns')
         images_df = pd.DataFrame.from_dict(vizwiz.dataset['images'], orient='columns')
 
+        
         if not self.df.empty:
-            self.df = self.df.merge(images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1), 
+            if self.data == 'vizwiz':
+                self.df = self.df.merge(images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1), 
                                     on='image_id', how='left')
+            else:
+                self.df = self.df.merge(images_df.rename({'id': 'image_id'}, axis=1), 
+                                    on='image_id', how='left')
+                
         else:
             self.df = images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1)
         
@@ -102,7 +122,7 @@ class VizwizDataset(Dataset):
         
         if self.copy_img_to_mem:
             print('loading images to memory...', end=' ')
-            fpath = os.path.join('vizwiz', self.dtype)
+            fpath = os.path.join('vizwiz' if self.data=='vizwiz' else 'coco', self.dtype)
             
             cols = ['file_name']
             unique = self.df.groupby(by=cols, as_index=False).first()[cols]
@@ -154,7 +174,7 @@ class VizwizDataset(Dataset):
         row = self.df.iloc[idx]
         
         fname = row['file_name']
-        fpath = os.path.join('vizwiz', self.dtype, fname)
+        fpath = os.path.join('vizwiz' if self.data=='vizwiz' else 'coco', self.dtype, fname)
         img = self.transformations(
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
@@ -180,7 +200,7 @@ class VizwizDataset(Dataset):
         row = self.df.iloc[idx]
         
         fname = row['file_name']
-        fpath = os.path.join('vizwiz', self.dtype, fname)
+        fpath = os.path.join('vizwiz' if self.data=='vizwiz' else 'coco', self.dtype, fname)
         img_tensor = self.transformations(
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
