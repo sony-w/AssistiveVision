@@ -1,2 +1,8 @@
+model_data
+.gitconfig
+.jupyter/
+.local/
+
+
 **/.ipynb_checkpoints
 **/__pycache__
