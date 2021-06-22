@@ -49,7 +49,7 @@ class COCODataset(Dataset):
         
         self.__getitem__fn = self.__getitem__corpus if ret_type == 'corpus' else self.__getitem__tensor
 
-        ann_path = os.path.join('annotations_coco', ''.join([self.dtype, '.json']))
+        ann_path = os.path.join('annotations_coco', ''.join([f"captions_{self.dtype}2017", '.json']))
         coco_ds = COCO(annotation_file=ann_path)
         
         # load coco to dataframe
