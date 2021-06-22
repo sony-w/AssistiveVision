@@ -14,10 +14,6 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-
-sys.path.append('/root/coco/PythonAPI')
-sys.path.append('/root/coco/PythonAPI/pycocotools')
-
 from pycocotools.coco import COCO
 
 
