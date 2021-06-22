@@ -20,17 +20,17 @@ class VizwizDataset(Dataset):
         Vizwiz Dataset in torch tensor
     """
     
-    def __init__(self, bucket='assistive-vision', vocab=None, dtype='train',
+    def __init__(self, bucket='assistive-vision', vocabulary=None, dtype='train',
                 startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>',
-                transformation=None,
+                transformations=None,
                 copy_img_to_mem=False,
                 ret_type='tensor',
                 ret_raw=False,
-                device='cpu'):
+                device=torch.device('cpu'),
+                partial=None):
 
         assert dtype in ['train', 'val', 'test'], "dtype value must be either 'train', 'val', or 'test'."
         assert ret_type in ['tensor', 'corpus', "return_type must be either 'tensor' or 'corpus'."]
-        assert device in ['cpu', 'gpu'], "device must be either 'cpu' or 'gpu'."
 
         self.imageS3 = ImageS3(bucket)
         self.dtype = dtype
@@ -38,7 +38,7 @@ class VizwizDataset(Dataset):
         self.ret_raw = ret_raw
         self.copy_img_to_mem = copy_img_to_mem
         
-        self.device = torch.device(device)
+        self.device = device
         self.torch = torch.cuda if (self.device.type == 'cuda') else torch
         
         self.__getitem__fn = self.__getitem__corpus if ret_type == 'corpus' else self.__getitem__tensor
@@ -50,13 +50,24 @@ class VizwizDataset(Dataset):
         self.df = pd.DataFrame.from_dict(vizwiz.dataset['annotations'], orient='columns')
         images_df = pd.DataFrame.from_dict(vizwiz.dataset['images'], orient='columns')
 
-        self.df = self.df.merge(images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1), 
-                                on='image_id', how='left')
+        if not self.df.empty:
+            self.df = self.df.merge(images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1), 
+                                    on='image_id', how='left')
+        else:
+            self.df = images_df.rename({'id': 'image_id', 'text_detected': 'image_text_detected'}, axis=1)
+        
+        if partial is not None: 
+            if isinstance(partial, int):
+                if partial > 0:
+                    self.df = self.df.iloc[:partial]
+                else: raise ValueError('partial must be greater than zero.')
+            else: raise TypeError('partial must be an int value.')
+                
 
         # use multiprocessing Manager for parallelization
         self.blob = mp.Manager().dict()
         
-        self.transformation = transformation if transformation is not None else transforms.Compose(
+        self.transformations = transformations if transformations is not None else transforms.Compose(
         [
             transforms.ToTensor()
         ])
@@ -68,10 +79,10 @@ class VizwizDataset(Dataset):
         
         self.loadImageAndCorpus()
         
-        if vocab is None:
-            self.vocab, self.word2idx, self.idx2word, self.max_len = self.__construct_vocab()
+        if vocabulary is None:
+            self.vocabulary = self.__construct_vocab(self.startseq, self.endseq, self.unkseq, self.padseq)
         else:
-            self.vocab, self.word2idx, self.idx2word, self.max_len = vocab
+            self.vocabulary = vocabulary
     
     
     def loadImageAndCorpus(self):
@@ -104,15 +115,18 @@ class VizwizDataset(Dataset):
             print('done!!')
         
         #if self.ret_type == 'corpus':
-        print('tokenizing caption...', end=' ')
-        # faster token counts for each caption with vectorization
-        self.df[['tokens', 'tokens_count']] = pd.DataFrame(np.row_stack(
-            np.vectorize(_token_counts, otypes=['O'])(self.df['caption'])), index=self.df.index)
+        if 'caption' in self.df:
+            print('tokenizing caption...', end=' ')
+            # faster token counts for each caption with vectorization
+            self.df[['tokens', 'tokens_count']] = pd.DataFrame(np.row_stack(
+                np.vectorize(_token_counts, otypes=['O'])(self.df['caption'])), index=self.df.index)
+        else:
+            print('no caption found...', end=' ')
         
         print('done!!')
     
     def getVocab(self):
-        return self.vocab, self.word2idx, self.idx2word, self.max_len
+        return self.vocabulary
     
     @property
     def pad_value(self):
@@ -133,17 +147,21 @@ class VizwizDataset(Dataset):
         
         Returns:
             img(heigth, width, depth): image blob
-            tokens(string): array of tokens
-            tokens_count(int): array of tokens length
+            tokens(string): array of tokens if tokens and tokens count exist
+            tokens_count(int): array of tokens length if tokens and tokens count exist
         """
         
         row = self.df.iloc[idx]
         
         fname = row['file_name']
         fpath = os.path.join('vizwiz', self.dtype, fname)
-        img = self.blob.get(fname, self.imageS3.getImage(fpath))
+        img = self.transformations(
+            self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
-        return img, row['tokens'], row['tokens_count']
+        if all([r in row for r in ['tokens', 'tokens_count']]):
+            return img, row['tokens'], row['tokens_count'], fname
+        
+        return img, fname
     
     
     def __getitem__tensor(self, idx: int):
@@ -155,13 +173,11 @@ class VizwizDataset(Dataset):
         
         Returns:
             img(heigth, width, depth): image blob
-            tokens(string): array of tokens
-            tokens_count(int): array of tokens length
+            tokens(string): array of tokens if tokens and tokens count exist
+            tokens_count(int): array of tokens length if tokens and tokens count exist
         """
         
         row = self.df.iloc[idx]
-        
-        tokens = [self.startseq + row['tokens'] + self.endseq]
         
         fname = row['file_name']
         fpath = os.path.join('vizwiz', self.dtype, fname)
@@ -169,35 +185,62 @@ class VizwizDataset(Dataset):
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
         ## TODO: use better token embedding
-        tokens_tensor = self.torch.LongTensor(self.max_len).fill_(self.pad_value)
-        tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.word2idx[token] for token in tokens])
+        if all([r in row for r in ['tokens']]):
+            tokens = [self.startseq] + row['tokens'] + [self.endseq]
         
-        return img_tensor, tokens_tensor, len(tokens)
+            tokens_tensor = self.torch.LongTensor(self.vocabulary.max_len).fill_(self.pad_value)
+            tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
+            
+            return img_tensor, tokens_tensor, len(tokens), fname
+        
+        return img_tensor, fname
     
     
-    def __construct_vocab(self):
+    def __construct_vocab(self, startseq, endseq, unkseq, padseq):
         """
-        Generate vocabs from all the captions
+        Generate vocabulary object from all the captions
         
         Returns:
-            vocab(string): sorted set of vocabs
-            word2idx(dict): word to index dictionary
-            idx2word(dict): index to word dictionary
-            max_len(int): caption max length
+            vocab(Vocabulary): vocabulary object
         """
         
-        tokens = [self.startseq, self.endseq, self.unkseq, self.padseq]
+        tokens = [] # [self.startseq, self.endseq, self.unkseq, self.padseq]
         max_len = 0
         
         for _, token in self.df['tokens'].iteritems():
             tokens.extend(token)
             max_len = max(max_len, len(token) + 2)
         
-        vocab = sorted(list(set(tokens)))
+        vocab = Vocabulary(tokens, max_len, startseq, endseq, unkseq, padseq)
         
-        word2idx = dict(map(reversed, enumerate(vocab)))
-        idx2word = dict(enumerate(vocab))
+        return vocab 
+    
+
+class Vocabulary:
+    
+    def __init__(self, tokens, max_len, startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>'):
         
-        return vocab, word2idx, idx2word, max_len
+        self.startseq = startseq.strip()
+        self.endseq = endseq.strip()
+        self.unkseq = unkseq.strip()
+        self.padseq = padseq.strip()
+        
+        t = [self.startseq, self.endseq, self.unkseq, self.padseq]
+        t.extend(tokens)
+        
+        self.vocab = sorted(list(set(t)))
+        self.max_len = max_len
+        
+        self.word2idx = dict(map(reversed, enumerate(self.vocab)))
+        self.idx2word = dict(enumerate(self.vocab))
+        
     
-    
+    def __call__(self, token):
+        
+        if not token in self.word2idx:
+            return self.word2idx[self.unkseq]
+        else:
+            return self.word2idx[token]
+        
+    def __len__(self):
+        return len(self.word2idx)

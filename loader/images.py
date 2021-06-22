@@ -3,8 +3,10 @@ __version__ = '1.0'
 
 import boto3
 import numpy as np
-import cv2
 import logging
+
+from PIL import Image
+from io import BytesIO
 
 from botocore.exceptions import ClientError
 
@@ -34,10 +36,11 @@ class ImageS3:
             image: numpy array of image's pixel value with dimension of (height, width, depth)
         """
         try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=key)['Body']
-
-            image = np.asarray(bytearray(response.read()), dtype="uint8")
-            image = cv2.imdecode(image, cv2.IMREAD_COLOR)
+            response = self.s3.get_object(Bucket=self.bucket, Key=key)['Body'].read()
+            image = Image.open(BytesIO(response))
+            
+            #image = np.asarray(bytearray(response.read()), dtype="uint8")
+            #image = cv2.imdecode(image, cv2.IMREAD_COLOR)
 
         except ClientError as e:
             logging.error(e)
