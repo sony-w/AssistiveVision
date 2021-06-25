@@ -8,24 +8,19 @@ import logging
 from PIL import Image
 from io import BytesIO
 
+from .bucket import BucketS3
+
 from botocore.exceptions import ClientError
 
-class ImageS3:
+class ImageS3(BucketS3):
     """Utility class to read images from AWS S3 bucket"""
     
-    def __init__(self, bucket, aws_access_key_id=None, aws_secret_access_key=None, region_name=None):
+    def __init__(self, bucket='assistive-vision', aws_access_key_id=None, aws_secret_access_key=None, region_name=None):
+        super(ImageS3, self).__init__(bucket=bucket, aws_access_key_id=aws_access_key_id, 
+                                      aws_secret_access_key=aws_secret_access_key, region_name=region_name)
         
-        if aws_access_key_id is not None and aws_secret_access_key is not None and region_name is not None:
-            self.s3 = boto3.client('s3', aws_access_key_id=aws_access_key_id,  
-                                   aws_secret_access_key=aws_secret_access_key, 
-                                   region_name=region_name)
-        else:
-            self.s3 = boto3.client('s3')
-
-        self.bucket = bucket
-            
     
-    def getImage(self, key):
+    def getImage(self, key_path):
         """
         Retrieve actual image
         
@@ -36,7 +31,7 @@ class ImageS3:
             image: numpy array of image's pixel value with dimension of (height, width, depth)
         """
         try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=key)['Body'].read()
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=key_path)['Body'].read()
             image = Image.open(BytesIO(response))
             
             #image = np.asarray(bytearray(response.read()), dtype="uint8")
