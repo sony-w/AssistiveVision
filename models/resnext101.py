@@ -137,7 +137,7 @@ class Decoder(nn.Module):
     
 class EncoderAttention(nn.Module):
     
-    def __init__(self, encoded_image_size=14):
+    def __init__(self, encoded_image_size=14, fine_tune=False):
         
         super(EncoderAttention, self).__init__()
         self.encoded_image_size = encoded_image_size
@@ -148,7 +148,7 @@ class EncoderAttention(nn.Module):
         self.resnext = nn.Sequential(*modules)
         # resize the image to allow input images of variable size
         self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
-        self.fine_tune()
+        self.fine_tune(fine_tune=fine_tune)
     
     def forward(self, images):
         
@@ -201,7 +201,6 @@ class Attention(nn.Module):
 
 class DecoderAttention(nn.Module):
     
-    # embedding_size=256, encoder_dim=2048, decoder_dim=512, attention_dim=512, dropout=0.5, alpha_c=1
     def __init__(self, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5,
                  alpha_c=1, embedding_matrix=None, train_embedding=True):
         
@@ -395,12 +394,12 @@ class Transformer(nn.Module):
 class TransformerAttention(nn.Module):
     
     def __init__(self, encoded_image_size, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, 
-                 dropout=0.5, embedding_matrix=None, train_embedding=True):
+                 dropout=0.5, alpha_c=1.0, embedding_matrix=None, train_embedding=True, fine_tune=False):
         
         super().__init__()
-        self.encoder = EncoderAttention(encoded_image_size=encoded_image_size)
+        self.encoder = EncoderAttention(encoded_image_size=encoded_image_size, fine_tune=fine_tune)
         self.decoder = DecoderAttention(attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=encoder_dim, dropout=dropout,
-                                       embedding_matrix=embedding_matrix, train_embedding=train_embedding)
+                                       alpha_c=alpha_c, embedding_matrix=embedding_matrix, train_embedding=train_embedding)
         
 
         
