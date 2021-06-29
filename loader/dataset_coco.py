@@ -193,9 +193,17 @@ class COCODataset(Dataset):
         ## TODO: use better token embedding
         if all([r in row for r in ['tokens']]):
             tokens = [self.startseq] + row['tokens'] + [self.endseq]
-        
             tokens_tensor = self.torch.LongTensor(self.vocabulary.max_len).fill_(self.pad_value)
-            tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
+
+            try:
+                if len(tokens) > self.vocabulary.max_len:
+                    tokens_tensor = self.torch.LongTensor(len(token)).fill_(self.pad_value)
+
+                tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
+            
+            except RuntimeError as e:
+                print('error raised :: ', e)
+                print(f'{image_id} :: {fname} :: vocab_max_len {self.vocabulary.max_len} :: tokens_len {len(tokens)}')
             
             return img_tensor, tokens_tensor, len(tokens), fname
         
@@ -217,20 +225,21 @@ class COCODataset(Dataset):
             tokens.extend(token)
             max_len = max(max_len, len(token) + 2)
         
-        vocab = Vocabulary(tokens, max_len)
+        vocab = Vocabulary(tokens, max_len, self.unkseq)
         
         return vocab 
     
 
 class Vocabulary:
     
-    def __init__(self, tokens, max_len):
+    def __init__(self, tokens, max_len, unkseq):
         
         self.vocab = sorted(list(set(tokens)))
         self.max_len = max_len
         
         self.word2idx = dict(map(reversed, enumerate(self.vocab)))
         self.idx2word = dict(enumerate(self.vocab))
+        self.unkseq = unkseq
         
     
     def __call__(self, token):

@@ -108,10 +108,10 @@ def evaluate(data_loader, model, bleu_score_fn, tensor_to_word_fn, vocabulary, d
     # mean running_bleu score
     for i in range(1, 5):
         running_bleu[i] /= len(data_loader)
-    scores['avg_bleu'] = running_bleu
+    scores['bleu'] = running_bleu
 
     # calculate overall score
-    scores['bleu'] = bleu(caps_byfname, pred_byfname, verbose=0)
+    scores['coco_bleu'] = bleu(caps_byfname, pred_byfname, verbose=0)
     scores['cider'] = cider(caps_byfname, pred_byfname)
     scores['rouge'] = rouge(caps_byfname, pred_byfname)
     #scores['spice'] = spice(caps_byfname, pred_byfname)
@@ -235,7 +235,7 @@ def main(args):
     print('\n>> training and evaluating model... <<')
     train_loss_min = 100
     val_loss_min = 100
-    val_avg_bleu4_max = 0.0
+    val_bleu4_max = 0.0
 
     model_bin = ModelS3()
     transformer_best = None
@@ -250,8 +250,8 @@ def main(args):
 
             print(f'Epoch {epoch + 1}/{NUM_EPOCHS}')
             print('=' * 95)
-            print(''.join([f'val_avg_bleu{i}: {scores["avg_bleu"][i]:.4f} ' for i in range(1, 5)]))
-            print(''.join([f'val_bleu{i + 1}{":":>5} {scores["bleu"][0][i]:.4f} ' for i in range(0, 4)]))
+            print(''.join([f'val_bleu{i}: {scores["bleu"][i]:.4f} ' for i in range(1, 5)]))
+            print(''.join([f'val_coco_bleu{i + 1}{":":>5} {scores["coco_bleu"][0][i]:.4f} ' for i in range(0, 4)]))
             print(f'val_cider{":":>5} {scores["cider"][0]:.4f}')
             print(f'val_rouge{":":>5} {scores["rouge"][0]:.4f}')
             #print(f'val_spice{":":>5} {scores["spice"][0]:.4f}')
@@ -265,24 +265,28 @@ def main(args):
                 val_loss_latest = val_loss,
                 train_loss_min = min(train_loss, train_loss_min),
                 val_loss_min = min(val_loss, val_loss_min),
-                val_avg_bleu1 = scores['avg_bleu'][1],
-                val_avg_bleu4 = scores['avg_bleu'][4],
-                val_avg_bleu4_max = max(scores['avg_bleu'][4], val_avg_bleu4_max),
-                val_bleu1 = scores['bleu'][0][0],
-                val_bleu4 = scores['bleu'][0][3],
+                val_bleu1 = scores['bleu'][1],
+                val_bleu4 = scores['bleu'][4],
+                val_bleu4_max = max(scores['bleu'][4], val_bleu4_max),
+                val_coco_bleu1 = scores['coco_bleu'][0][0],
+                val_coco_bleu4 = scores['coco_bleu'][0][3],
                 val_cider = scores['cider'][0],
                 val_rouge = scores['rouge'][0]
                 #val_spice = scores['spice'][0],
                 #val_meteor = scores['meteor'][0]
             )
 
-            if scores['avg_bleu'][4] > val_avg_bleu4_max:
-                val_avg_bleu4_max = scores['avg_bleu'][4]
+            if scores['bleu'][4] > val_bleu4_max:
+                val_bleu4_max = scores['bleu'][4]
                 fname = f'{MODEL_NAME}_best_v{VERSION}.pt'
                 # keep the best transformer
                 transformer_best = transformer
                 model_bin.save(state, os.path.join(LOCAL_PATH, fname), os.path.join(KEY_PATH, fname))
     
+            # save as checkpoint
+            fname = f'{MODEL_NAME}_ep{epoch + 1}_chkpoint_v{VERSION}.pt'
+            model_bin.save(state, os.path.join(LOCAL_PATH, fname), os.path.join(KEY_PATH, fname))
+
     print('done!!')
     
     print('\n>> saving model... <<')
@@ -325,5 +329,5 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     print(args)
-    # python3 train.py --num_epochs=2 --batch_size=10
+    # python3 train.py --num_epochs=2 --batch_size=10 --version=0.1
     main(args)
