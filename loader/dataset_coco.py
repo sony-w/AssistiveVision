@@ -29,12 +29,16 @@ class COCODataset(Dataset):
                 ret_type='tensor',
                 ret_raw=False,
                 device=torch.device('cpu'),
-                partial=None):
+                partial=None,
+                aws_access_key_id=None, 
+                aws_secret_access_key=None, 
+                region_name=None):
 
         assert dtype in ['train', 'val', 'test'], "dtype value must be either 'train', 'val', or 'test'."
         assert ret_type in ['tensor', 'corpus', "return_type must be either 'tensor' or 'corpus'."]
 
-        self.imageS3 = ImageS3(bucket)
+        self.imageS3 = ImageS3(bucket, aws_access_key_id=aws_access_key_id, 
+                               aws_secret_access_key=aws_secret_access_key, region_name=region_name)
         self.dtype = dtype
         self.ret_type = ret_type
         self.ret_raw = ret_raw
@@ -82,7 +86,7 @@ class COCODataset(Dataset):
         self.loadImageAndCorpus()
         
         if vocabulary is None:
-            self.vocabulary = self.__construct_vocab(self.startseq, self.endseq, self.unkseq, self.padseq)
+            self.vocabulary = self.__construct_vocab()
         else:
             self.vocabulary = vocabulary
     
@@ -198,7 +202,7 @@ class COCODataset(Dataset):
         return img_tensor, fname
     
     
-    def __construct_vocab(self, startseq, endseq, unkseq, padseq):
+    def __construct_vocab(self):
         """
         Generate vocabulary object from all the captions
         
@@ -206,31 +210,23 @@ class COCODataset(Dataset):
             vocab(Vocabulary): vocabulary object
         """
         
-        tokens = [] # [self.startseq, self.endseq, self.unkseq, self.padseq]
+        tokens = [self.startseq, self.endseq, self.unkseq, self.padseq]
         max_len = 0
         
         for _, token in self.df['tokens'].iteritems():
             tokens.extend(token)
             max_len = max(max_len, len(token) + 2)
         
-        vocab = Vocabulary(tokens, max_len, startseq, endseq, unkseq, padseq)
+        vocab = Vocabulary(tokens, max_len)
         
         return vocab 
     
 
 class Vocabulary:
     
-    def __init__(self, tokens, max_len, startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>'):
+    def __init__(self, tokens, max_len):
         
-        self.startseq = startseq.strip()
-        self.endseq = endseq.strip()
-        self.unkseq = unkseq.strip()
-        self.padseq = padseq.strip()
-        
-        t = [self.startseq, self.endseq, self.unkseq, self.padseq]
-        t.extend(tokens)
-        
-        self.vocab = sorted(list(set(t)))
+        self.vocab = sorted(list(set(tokens)))
         self.max_len = max_len
         
         self.word2idx = dict(map(reversed, enumerate(self.vocab)))
