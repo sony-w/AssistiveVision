@@ -23,26 +23,32 @@ class COCODataset(Dataset):
     """
     
     def __init__(self, bucket='assistive-vision', vocabulary=None, dtype='train',
-                startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>',
-                transformations=None,
-                copy_img_to_mem=False,
-                ret_type='tensor',
-                ret_raw=False,
-                device=torch.device('cpu'),
-                partial=None,
-                aws_access_key_id=None, 
-                aws_secret_access_key=None, 
-                region_name=None):
+                 startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>',
+                 transformations=None,
+                 copy_img_to_mem=False,
+                 ret_type='tensor',
+                 ret_raw=False,
+                 device=torch.device('cpu'),
+                 partial=None,
+                 aws_access_key_id=None, 
+                 aws_secret_access_key=None, 
+                 region_name=None,
+                 is_sagemaker=False,
+                 logger=None):
 
         assert dtype in ['train', 'val', 'test'], "dtype value must be either 'train', 'val', or 'test'."
         assert ret_type in ['tensor', 'corpus', "return_type must be either 'tensor' or 'corpus'."]
 
         self.imageS3 = ImageS3(bucket, aws_access_key_id=aws_access_key_id, 
-                               aws_secret_access_key=aws_secret_access_key, region_name=region_name)
+                               aws_secret_access_key=aws_secret_access_key, region_name=region_name, is_sagemaker=is_sagemaker, logger=logger)
         self.dtype = dtype
         self.ret_type = ret_type
         self.ret_raw = ret_raw
         self.copy_img_to_mem = copy_img_to_mem
+        self.is_sagemaker = is_sagemaker
+        self.logger = logger
+        if self.logger is None:
+            self.logger = logging
         
         self.device = device
         self.torch = torch.cuda if (self.device.type == 'cuda') else torch
@@ -108,7 +114,10 @@ class COCODataset(Dataset):
         
         if self.copy_img_to_mem:
             print('loading images to memory...', end=' ')
+
             fpath = os.path.join('coco', self.dtype)
+            if self.is_sagemaker:
+                fpath = os.path.join('/opt/ml/input/data', self.dtype)
             
             cols = ['file_name']
             unique = self.df.groupby(by=cols, as_index=False).first()[cols]
@@ -158,9 +167,12 @@ class COCODataset(Dataset):
         """
         
         row = self.df.iloc[idx]
-        
         fname = row['file_name']
+        
         fpath = os.path.join('coco', self.dtype, fname)
+        if self.is_sagemaker:
+            fpath = os.path.join('/opt/ml/input/data', self.dtype, fname)
+
         img = self.transformations(
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
@@ -184,9 +196,12 @@ class COCODataset(Dataset):
         """
         
         row = self.df.iloc[idx]
-        
         fname = row['file_name']
+
         fpath = os.path.join('coco', self.dtype, fname)
+        if self.is_sagemaker:
+            fpath = os.path.join('/opt/ml/input/data', self.dtype, fname)
+
         img_tensor = self.transformations(
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
@@ -202,8 +217,8 @@ class COCODataset(Dataset):
                 tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
             
             except RuntimeError as e:
-                print('error raised :: ', e)
-                print(f'{image_id} :: {fname} :: vocab_max_len {self.vocabulary.max_len} :: tokens_len {len(tokens)}')
+                self.logger.error(e)
+                self.logger.error(f'{image_id} :: {fname} :: vocab_max_len {self.vocabulary.max_len} :: tokens_len {len(tokens)}')
             
             return img_tensor, tokens_tensor, len(tokens), fname
         

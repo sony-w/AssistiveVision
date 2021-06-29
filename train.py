@@ -2,6 +2,7 @@ import argparse
 import os
 import string
 import torch
+import logging
 
 from collections import defaultdict
 
@@ -9,6 +10,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pack_padded_sequence
 from tqdm.auto import tqdm
+from pathlib import Path
 
 from loader.dataset import VizwizDataset
 from loader.model import ModelS3
@@ -20,6 +22,32 @@ from IPython.core.display import HTML
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
+# change this flag whether sagemaker is being used or not
+is_sagemaker = True
+
+# log setup
+log_path = 'logs'
+log_file = 'vision.logs'
+# create log dir if it does not exist
+os.makedirs(log_path, exist_ok=True)
+
+if is_sagemaker:
+    log_path = '/opt/ml/output/failure'
+
+logger = logging.getLogger(__name__)
+# log handlers
+c_handler = logging.StreamHandler()
+f_handler = logging.FileHandler(os.path.join(log_path, log_file), mode='a')
+c_handler.setLevel(logging.DEBUG)
+f_handler.setLevel(logging.DEBUG)
+# log format
+c_format = logging.Formatter(fmt='%(name)s :: %(asctime)s :: %(levelname)s - %(message)s', datefmt='%b-%d-%y %H:%M:%S')
+f_format = logging.Formatter(fmt='%(name)s :: %(asctime)s :: %(levelname)s - %(message)s', datefmt='%b-%d-%y %H:%M:%S')
+c_handler.setFormatter(c_format)
+f_handler.setFormatter(f_format)
+
+logger.addHandler(c_handler)
+logger.addHandler(f_handler)
 
 
 def fit(dataloaders, model, loss_fn, optimizer, batch_size, desc=''):
@@ -163,23 +191,34 @@ def main(args):
     NUM_EPOCHS = args.num_epochs
 
     LOCAL_PATH = args.local_path
+    if is_sagemaker:
+        LOCAL_PATH = '/opt/ml/model'
+    
     KEY_PATH = args.key_path
+    
     CAPTIONS_PATH = args.captions_path
+    if is_sagemaker:
+        CAPTIONS_PATH = '/opt/ml/output'
+    
     VERSION = args.version
 
     MODEL_NAME = f'{MODEL}_b{BATCH_SIZE}_emb{EMBEDDING_DIM}'
     # load vizwiz train dataset
     print('>> loading train dataset... <<')
-    train = VizwizDataset(dtype='train', ret_type='tensor', copy_img_to_mem=False, device=device, partial=100)
+    train = VizwizDataset(dtype='train', ret_type='tensor', copy_img_to_mem=False, device=device, #partial=100, 
+                          is_sagemaker=is_sagemaker, logger=logger)
     vocabulary = train.getVocab()
     # load vizwiz val and eval dataset
     print('\n>> loading val eval dataset... <<')
-    val = VizwizDataset(dtype='val', ret_type='tensor', copy_img_to_mem=False, vocabulary=vocabulary, device=device, partial=50)
+    val = VizwizDataset(dtype='val', ret_type='tensor', copy_img_to_mem=False, vocabulary=vocabulary, device=device, #partial=50, 
+                       is_sagemaker=is_sagemaker, logger=logger)
     print('\n>> loading eval dataset... <<')
-    val_eval = VizwizDataset(dtype='val', ret_type='corpus', copy_img_to_mem=False, vocabulary=vocabulary, device=device, partial=50)
+    val_eval = VizwizDataset(dtype='val', ret_type='corpus', copy_img_to_mem=False, vocabulary=vocabulary, device=device, #partial=50, 
+                            is_sagemaker=is_sagemaker, logger=logger)
     # load vizwiz test dataset
     print('\n>> loading test dataset... <<')
-    test = VizwizDataset(dtype='test', ret_type='corpus', copy_img_to_mem=False, vocabulary=vocabulary, device=device, partial=10)
+    test = VizwizDataset(dtype='test', ret_type='corpus', copy_img_to_mem=False, vocabulary=vocabulary, device=device, #partial=10, 
+                        is_sagemaker=is_sagemaker, logger=logger)
     
     print('\n>> generating word embedding matrix... <<')
     embedding_mtx = embedding_matrix(embedding_dim=EMBEDDING_DIM, word2idx=vocabulary.word2idx, glove_dir=GLOVE_DIR)
@@ -237,7 +276,7 @@ def main(args):
     val_loss_min = 100
     val_bleu4_max = 0.0
 
-    model_bin = ModelS3()
+    model_bin = ModelS3(is_sagemaker=is_sagemaker, logger=logger)
     transformer_best = None
 
     for epoch in range(NUM_EPOCHS):
@@ -303,24 +342,33 @@ def main(args):
     
     
 if __name__ == '__main__':
+    
+    hyperparams = dict()
+    if is_sagemaker:
+        prefix     = '/opt/ml/'
+        param_path = os.path.join(prefix, 'input/config/hyperparameters.json')
+
+        with open(param_path, 'r') as params:
+            hyperparams = json.load(params)
+    
     parser = argparse.ArgumentParser(description='Image Captioning')
-    parser.add_argument('--bucket', type=str, default='assistive-vision', help='main S3 bucket name as default storage')
-    parser.add_argument('--model_name', type=str, default='resnext101_attention', help='model name identifier')
+    parser.add_argument('--bucket', type=str, default=hyperparams.get('bucket', 'assistive-vision'), help='main S3 bucket name as default storage')
+    parser.add_argument('--model_name', type=str, default=hyperparams.get('model_name', 'resnext101_attention'), help='model name identifier')
     parser.add_argument('--glove_dir', type=str, default='annotations/glove', help='directory to store glove embedding')
     
-    parser.add_argument('--encoder_dim', type=int, default=2048, help='dimension of image embedding in attention network')
-    parser.add_argument('--embedding_dim', type=int, default=300, help='dimension of word embedding vectors')
-    parser.add_argument('--attention_dim', type=int, default=256, help='dimension of attention network')
-    parser.add_argument('--decoder_dim', type=int, default=256, help='dimension of decoder network')
+    parser.add_argument('--encoder_dim', type=int, default=int(hyperparams.get('encoder_dim', 2048)), help='dimension of image embedding in attention network')
+    parser.add_argument('--embedding_dim', type=int, default=int(hyperparams.get('embedding_dim', 300)), help='dimension of word embedding vectors')
+    parser.add_argument('--attention_dim', type=int, default=int(hyperparams.get('attention_dim', 256)), help='dimension of attention network')
+    parser.add_argument('--decoder_dim', type=int, default=int(hyperparams.get('decoder_dim', 256)), help='dimension of decoder network')
     
-    parser.add_argument('--train_embedding', type=bool, default=True, help='flag to re-train the word embedding layer')
-    parser.add_argument('--fine_tune', type=bool, default=False, help='flag to re-train the lower layers of feature extraction')
+    parser.add_argument('--train_embedding', type=bool, default=bool(hyperparams.get('train_embedding', True)), help='flag to re-train the word embedding layer')
+    parser.add_argument('--fine_tune', type=bool, default=bool(hyperparams.get('fine_tune', False)), help='flag to re-train the lower layers of feature extraction')
     
-    parser.add_argument('--batch_size', type=int, default=128, help='size of batch for each train and validation epochs')
-    parser.add_argument('--dropout_rate', type=float, default=0.5, help='dropout ratio for train regularization')
-    parser.add_argument('--alpha_c', type=float, default=1.0, help='weight assigned to the second loss function')
-    parser.add_argument('--lr', type=float, default=5.e-4, help='learning rate for adam optimizer')
-    parser.add_argument('--num_epochs', type=int, default=10, help='number of train and validation epochs')
+    parser.add_argument('--batch_size', type=int, default=int(hyperparams.get('batch_size', 128)), help='size of batch for each train and validation epochs')
+    parser.add_argument('--dropout_rate', type=float, default=float(hyperparams.get('dropout_rate', 0.5)), help='dropout ratio for train regularization')
+    parser.add_argument('--alpha_c', type=float, default=float(hyperparams.get('alpha_c', 1.0)), help='weight assigned to the second loss function')
+    parser.add_argument('--lr', type=float, default=float(hyperparams.get('lr', 5.e-4)), help='learning rate for adam optimizer')
+    parser.add_argument('--num_epochs', type=int, default=int(hyperparams.get('num_epochs', 10)), help='number of train and validation epochs')
     
     parser.add_argument('--local_path', type=str, default='bin/', help='local path location for model repo')
     parser.add_argument('--key_path', type=str, default='bin/', help='s3 path location for model repo')

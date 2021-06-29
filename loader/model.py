@@ -3,7 +3,6 @@ __version__ = '1.0'
 
 import torch
 import os
-import logging
 import json
 
 from pathlib import Path
@@ -15,10 +14,11 @@ from botocore.exceptions import ClientError
 class ModelS3(BucketS3):
     """Utility class to save and load model to and from AWS S3 bucket"""
     
-    def __init__(self, bucket='assistive-vision', aws_access_key_id=None, aws_secret_access_key=None, region_name=None):
+    def __init__(self, bucket='assistive-vision', aws_access_key_id=None, aws_secret_access_key=None, region_name=None, 
+                 is_sagemaker=False, logger=None):
         
         super(ModelS3, self).__init__(bucket=bucket, aws_access_key_id=aws_access_key_id, 
-                                      aws_secret_access_key=aws_secret_access_key, region_name=region_name)
+                                      aws_secret_access_key=aws_secret_access_key, region_name=region_name, is_sagemaker=is_sagemaker, logger=logger)
         
     
     
@@ -38,7 +38,7 @@ class ModelS3(BucketS3):
             torch.save(state, local_path)
             self.s3_resource.Bucket(self.bucket).upload_file(local_path, key_path)
         except ClientError as e:
-            logging.error(e)
+            self.logger.error(e)
     
     
     def load(self, local_path, key_path, overwrite=True):
@@ -65,7 +65,7 @@ class ModelS3(BucketS3):
             state = torch.load(local_path)
             
         except ClientError as e:
-            logging.error(e)
+            self.logger.error(e)
         
         return state
     
@@ -79,20 +79,26 @@ class ModelS3(BucketS3):
             key_path(str): s3 file path
         """
         try:
-            self.s3_client.put_object(Body=json.dumps(input_dict), Bucket=self.bucket, Key=key_path)
+            if self.is_sagemaker:
+                json.dump(input_dict, key_path, indent=6, skipkeys=True)
+            else:
+                self.s3_client.put_object(Body=json.dumps(input_dict, indent=6, skipkeys=True), Bucket=self.bucket, Key=key_path)
             
         except ClientError as e:
-            logging.error(e)
+            self.logger.error(e)
             
     
     def load_captions(self, key_path):
         
         json_loads = None
         try:
-            response = self.s3_client.get_object(Bucket=self.bucket, Key=key_path)['Body'].read().decode('utf-8')
-            json_loads = json.loads(response)
+            if self.is_sagemaker:
+                json_loads = json.load(key_path)
+            else:
+                response = self.s3_client.get_object(Bucket=self.bucket, Key=key_path)['Body'].read().decode('utf-8')
+                json_loads = json.loads(response)
             
         except ClientError as e:
-            logging.error(e)
+            self.logger.error(e)
         
         return json_loads
