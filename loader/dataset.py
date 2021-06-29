@@ -215,7 +215,7 @@ class VizwizDataset(Dataset):
             
             try:
                 if len(tokens) > self.vocabulary.max_len:
-                    tokens_tensor = self.torch.LongTensor(len(token)).fill_(self.pad_value)
+                    tokens_tensor = self.torch.LongTensor(len(tokens)).fill_(self.pad_value)
 
                 tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
             
