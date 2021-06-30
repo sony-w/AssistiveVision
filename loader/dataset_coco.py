@@ -207,13 +207,15 @@ class COCODataset(Dataset):
         
         ## TODO: use better token embedding
         if all([r in row for r in ['tokens']]):
+            
             tokens = [self.startseq] + row['tokens'] + [self.endseq]
+            if len(tokens) > self.vocabulary.max_len:
+                _tokens = row['tokens'][:(self.vocabulary.max_len - 2)]
+                tokens = [self.startseq] + _tokens + [self.endseq]
+            
             tokens_tensor = self.torch.LongTensor(self.vocabulary.max_len).fill_(self.pad_value)
 
             try:
-                if len(tokens) > self.vocabulary.max_len:
-                    tokens_tensor = self.torch.LongTensor(len(tokens)).fill_(self.pad_value)
-
                 tokens_tensor[:len(tokens)] = self.torch.LongTensor([self.vocabulary(token) for token in tokens])
             
             except RuntimeError as e:
@@ -234,7 +236,7 @@ class COCODataset(Dataset):
         """
         
         tokens = [self.startseq, self.endseq, self.unkseq, self.padseq]
-        max_len = 0
+        max_len = 300 # limit to 300
         
         for _, token in self.df['tokens'].iteritems():
             tokens.extend(token)
