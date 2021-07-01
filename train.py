@@ -28,12 +28,13 @@ is_sagemaker = True
 # log setup
 log_path = 'logs'
 log_file = 'vision.logs'
-# create log dir if it does not exist
-os.makedirs(log_path, exist_ok=True)
 
 if is_sagemaker:
     log_path = '/opt/ml/output/failure'
 
+# create log dir if it does not exist
+os.makedirs(log_path, exist_ok=True)
+    
 logger = logging.getLogger(__name__)
 # log handlers
 c_handler = logging.StreamHandler()
