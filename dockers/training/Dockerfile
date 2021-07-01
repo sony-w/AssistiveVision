@@ -328,5 +328,5 @@ ENV SAGEMAKER_SUBMIT_DIRECTORY $SAGEMAKER_CODE_PATH
 ENV SAGEMAKER_PROGRAM train.py
 
 # Starts framework
-CMD ["/bin/bash"]
+# CMD ["/bin/bash"]
 # ENTRYPOINT ["python3", "train.py"]
