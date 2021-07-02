@@ -4,6 +4,7 @@ import string
 import torch
 import logging
 import json
+import gc
 
 from collections import defaultdict
 
@@ -98,6 +99,13 @@ def fit(dataloaders, model, loss_fn, optimizer, batch_size, desc=''):
                 print(f'{desc}_{phase} {batch_idx + 1}/{len(dataloaders[phase])} '
                       f'{phase}_loss: {loss / (batch_idx + 1):.4f} '
                       f'{phase}_acc: {acc / (batch_idx + 1):.4f}')
+                
+            # release gpu memory
+            del images
+            del captions
+            gc.collect()
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
         
         means[phase] = loss / len(dataloaders[phase])
     
@@ -134,6 +142,13 @@ def evaluate(data_loader, model, bleu_score_fn, tensor_to_word_fn, vocabulary, d
             if not f in pred_byfname:
                 pred_byfname[f] = [detokenize(o)]
             caps_byfname[f].append(detokenize(c))
+        
+        # release gpu memory
+        del images
+        del captions
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
     # mean running_bleu score
     for i in range(1, 5):
@@ -165,6 +180,12 @@ def generate_captions(dataloader, model, tensor_to_word_fn, vocabulary, desc='')
             )
             rlist.append(result)
 
+        # release gpu memory
+        del images
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+            
     results = dict(
         results = rlist
     )
