@@ -159,8 +159,8 @@ def evaluate(data_loader, model, bleu_score_fn, tensor_to_word_fn, vocabulary, d
     scores['coco_bleu'] = bleu(caps_byfname, pred_byfname, verbose=0)
     scores['cider'] = cider(caps_byfname, pred_byfname)
     scores['rouge'] = rouge(caps_byfname, pred_byfname)
-    #scores['spice'] = spice(caps_byfname, pred_byfname)
-    #scores['meteor'] = meteor(caps_byfname, pred_byfname)
+    scores['spice'] = spice(caps_byfname, pred_byfname)
+    scores['meteor'] = meteor(caps_byfname, pred_byfname)
     
     return scores
 
@@ -316,8 +316,8 @@ def main(args):
             print(''.join([f'val_coco_bleu{i + 1}{":":>5} {scores["coco_bleu"][0][i]:.4f} ' for i in range(0, 4)]))
             print(f'val_cider{":":>5} {scores["cider"][0]:.4f}')
             print(f'val_rouge{":":>5} {scores["rouge"][0]:.4f}')
-            #print(f'val_spice{":":>5} {scores["spice"][0]:.4f}')
-            #print(f'val_meteor{":":>5} {scores["meteor"][0]:.4f}')
+            print(f'val_spice{":":>5} {scores["spice"][0]:.4f}')
+            print(f'val_meteor{":":>5} {scores["meteor"][0]:.4f}')
             print('-' * 95)
 
             state = dict(
@@ -333,9 +333,9 @@ def main(args):
                 val_coco_bleu1 = scores['coco_bleu'][0][0],
                 val_coco_bleu4 = scores['coco_bleu'][0][3],
                 val_cider = scores['cider'][0],
-                val_rouge = scores['rouge'][0]
-                #val_spice = scores['spice'][0],
-                #val_meteor = scores['meteor'][0]
+                val_rouge = scores['rouge'][0], 
+                val_spice = scores['spice'][0],
+                val_meteor = scores['meteor'][0]
             )
 
             if scores['bleu'][4] > val_bleu4_max:
@@ -396,7 +396,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_path', type=str, default='bin/', help='local path location for model repo')
     parser.add_argument('--key_path', type=str, default='bin/', help='s3 path location for model repo')
     parser.add_argument('--captions_path', type=str, default='captions/', help='s3 path location for generated test captions')
-    parser.add_argument('--version', type=float, default=1.0, help='model versioning')
+    parser.add_argument('--version', type=str, default='1.0', help='model versioning')
     
     args = parser.parse_args()
     print(args)
