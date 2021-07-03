@@ -4,6 +4,7 @@ __version__ = '1.0'
 import torch
 import os
 import json
+import pickle
 
 from pathlib import Path
 from io import BytesIO
@@ -102,3 +103,53 @@ class ModelS3(BucketS3):
             self.logger.error(e)
         
         return json_loads
+    
+    
+    def save_pkl(self, model, local_path, key_path):
+        """
+        Save model as pickle
+        
+        Parameters:
+            model(model): model binary
+            local_path(string): local file path to save the model state
+            key_path(string): s3 file path to save the model state
+        """
+        try:
+            path = Path(local_path)
+            path.parent.mkdir(parents=True, exist_ok=True) 
+            
+            with open(local_path, 'wb') as file:
+                pickle.dump(model, file)
+            self.s3_resource.Bucket(self.bucket).upload_file(local_path, key_path)
+        except ClientError as e:
+            self.logger.error(e)
+    
+    
+    def load_pkl(self, local_path, key_path, overwrite=True):
+        """
+        Load model pickle
+        
+        Parameters:
+            local_path(string): local file path
+            key_path(string): s3 file path
+            overwrite(boolean): overwrite local file if exists from s3 file when True
+        
+        Returns:
+            model: model binary
+        """
+        model = None
+        try:
+            if os.path.exists(local_path) and os.path.isfile(local_path):
+                if overwrite:
+                    self.s3_resource.Bucket(self.bucket).download_file(key_path, local_path)
+
+            else:
+                self.s3_resource.Bucket(self.bucket).download_file(key_path, local_path)
+            
+            with open(local_path, 'rb') as file:
+                model = pickle.load(local_path)
+            
+        except ClientError as e:
+            self.logger.error(e)
+        
+        return model

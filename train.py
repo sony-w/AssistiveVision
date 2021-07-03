@@ -70,7 +70,7 @@ def fit(dataloaders, model, loss_fn, optimizer, batch_size, desc=''):
         t = tqdm(iter(dataloaders[phase]), desc=f'{desc} ::: {phase}')
         for batch_idx, batch in enumerate(t):
             images, captions, lengths, fname, image_id = batch
-    
+
             if phase == 'train':
                 optimizer.zero_grad()
             
@@ -251,7 +251,14 @@ def main(args):
     transformer = TransformerAttention(encoded_image_size=14, attention_dim=ATTENTION_DIM, embedding_dim=EMBEDDING_DIM, 
                                        decoder_dim=DECODER_DIM, vocab_size=vocab_size, encoder_dim=ENCODER_DIM, dropout=DROPOUT_RATE,
                                        alpha_c=ALPHA_C, embedding_matrix=embedding_mtx, train_embedding=TRAIN_EMBEDDING, 
-                                       fine_tune=FINE_TUNE).to(device) 
+                                       fine_tune=FINE_TUNE) 
+    # save as pickle for easy retrieval
+    model_bin = ModelS3(is_sagemaker=is_sagemaker, logger=logger)
+    
+    fname = f'{MODEL_NAME}_ep{NUM_EPOCHS}_bin_v{VERSION}.pkl'
+    model_bin.save_pkl(transformer, os.path.join(LOCAL_PATH, fname), os.path.join(KEY_PATH, fname))
+    
+    transformer = transformer.to(device)
 
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=train.pad_value).to(device)
     corpus_bleu_score_fn = bleu_score_fn(4, 'corpus')
@@ -299,7 +306,6 @@ def main(args):
     val_loss_min = 100
     val_bleu4_max = 0.0
 
-    model_bin = ModelS3(is_sagemaker=is_sagemaker, logger=logger)
     transformer_best = None
 
     for epoch in range(NUM_EPOCHS):
