@@ -186,11 +186,11 @@ def generate_captions(dataloader, model, tensor_to_word_fn, vocabulary, desc='')
         if device.type == 'cuda':
             torch.cuda.empty_cache()
             
-    results = dict(
-        results = rlist
-    )
+    #results = dict(
+    #    results = rlist
+    #)
     
-    return results
+    return rlist
 
 
 def main(args):

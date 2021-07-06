@@ -62,8 +62,9 @@ class ModelS3(BucketS3):
 
             else:
                 self.s3_resource.Bucket(self.bucket).download_file(key_path, local_path)
-                
-            state = torch.load(local_path)
+            
+            device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+            state = torch.load(local_path, map_location=device)
             
         except ClientError as e:
             self.logger.error(e)
