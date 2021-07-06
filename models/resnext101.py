@@ -167,8 +167,8 @@ class EncoderAttention(nn.Module):
         for p in self.resnext.parameters():
             p.requires_grad = False
         
-        # only fine-tune convolutional blocks 2 through 4
-        for c in list(self.resnext.children())[5:]:
+        # only fine-tune convolutional blocks 6 (layer 3) from 19th layer onwards and 7 (layer 4)
+        for c in nn.Sequential(list(self.resnext.children())[6][19:], list(self.resnext.children())[-1]):
             for p in c.parameters():
                 p.requires_grad = fine_tune
         
