@@ -356,7 +356,7 @@ class DecoderAttention(nn.Module):
         return (sampled_ids, torch.cat(alphas, 1)) if return_alpha else sampled_ids
     
     
-class Transformer(nn.Module):
+class Seq2Seq(nn.Module):
     
     def __init__(self, embedding_size, hidden_size, vocab_size, num_layers=1, 
                  embedding_matrix=None, train_embedding=True):
@@ -391,7 +391,7 @@ class Transformer(nn.Module):
 
 
     
-class TransformerAttention(nn.Module):
+class Seq2SeqAttention(nn.Module):
     
     def __init__(self, encoded_image_size, attention_dim, embedding_dim, decoder_dim, vocab_size, encoder_dim=2048, 
                  dropout=0.5, alpha_c=1.0, embedding_matrix=None, train_embedding=True, fine_tune=False):

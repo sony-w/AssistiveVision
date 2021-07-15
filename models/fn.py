@@ -4,6 +4,12 @@ __version__ = '1.0'
 import torch
 import torch.nn as nn
 
+from typing import Union, Sequence
+
+
+TensorOrSequence = Union[Sequence[torch.Tensor], torch.Tensor]
+TensorOrNone = Union[torch.Tensor, None]
+
 def embedding_layer(trainable=True, embedding_matrix=None, **kwargs):
     emb_layer = nn.Embedding(**kwargs)
     if embedding_matrix is not None:
