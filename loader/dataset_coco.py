@@ -15,7 +15,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-from pycocotools.coco import COCO
+from loader.pycocotools.coco import COCO
 
 
 class COCODataset(Dataset):
