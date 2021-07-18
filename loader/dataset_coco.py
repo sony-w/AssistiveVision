@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import multiprocessing as mp
 import nltk
+import logging
 
 from .images import ImageS3
 
@@ -91,9 +92,10 @@ class COCODataset(Dataset):
         
         self.loadImageAndCorpus()
         
-        if vocabulary is None:
-            self.vocabulary = self.__construct_vocab()
-        else:
+        #if vocabulary is None:
+        #    self.vocabulary = self.__construct_vocab()
+        #else:
+        if self.vocabulary is not None:
             self.vocabulary = vocabulary
     
     
@@ -180,8 +182,7 @@ class COCODataset(Dataset):
             return img, row['tokens'], row['tokens_count'], fname
         
         return img, fname
-    
-    
+
     def __getitem__tensor(self, idx: int):
         """
         Retrieve image blob, tokens, and tokens count from given index in tensor format
@@ -196,6 +197,8 @@ class COCODataset(Dataset):
         """
         
         row = self.df.iloc[idx]
+
+        image_id = row['image_id']
         fname = row['file_name']
 
         fpath = os.path.join('coco', self.dtype, fname)
@@ -222,11 +225,10 @@ class COCODataset(Dataset):
                 self.logger.error(e)
                 self.logger.error(f'{image_id} :: {fname} :: vocab_max_len {self.vocabulary.max_len} :: tokens_len {len(tokens)}')
             
-            return img_tensor, tokens_tensor, len(tokens), fname
+            return img_tensor, tokens_tensor, len(tokens), fname, image_id
         
-        return img_tensor, fname
-    
-    
+        return img_tensor, fname, image_id
+
     def __construct_vocab(self):
         """
         Generate vocabulary object from all the captions
@@ -257,7 +259,6 @@ class Vocabulary:
         self.word2idx = dict(map(reversed, enumerate(self.vocab)))
         self.idx2word = dict(enumerate(self.vocab))
         self.unkseq = unkseq
-        
     
     def __call__(self, token):
         

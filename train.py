@@ -17,7 +17,7 @@ from pathlib import Path
 from loader.dataset import VizwizDataset
 from loader.model import ModelS3
 from commons.utils import embedding_matrix, tensor_to_word_fn
-from models.resnext101 import TransformerAttention
+from models.seq2seq import Seq2SeqAttention
 from eval.metrics import bleu, cider, rouge, spice, meteor, bleu_score_fn
 
 from IPython.core.display import HTML
@@ -219,6 +219,10 @@ def main(args):
     
     KEY_PATH = args.key_path
     
+    CHEKCPOINTS_PATH = args.checkpoints_path
+    if is_sagemaker:
+        CHEKCPOINTS_PATH = '/opt/ml/checkpoints'
+    
     CAPTIONS_PATH = args.captions_path
     if is_sagemaker:
         CAPTIONS_PATH = '/opt/ml/output'
@@ -248,10 +252,10 @@ def main(args):
     print('done!!')
     
     vocab_size = len(vocabulary.vocab)
-    transformer = TransformerAttention(encoded_image_size=14, attention_dim=ATTENTION_DIM, embedding_dim=EMBEDDING_DIM, 
-                                       decoder_dim=DECODER_DIM, vocab_size=vocab_size, encoder_dim=ENCODER_DIM, dropout=DROPOUT_RATE,
-                                       alpha_c=ALPHA_C, embedding_matrix=embedding_mtx, train_embedding=TRAIN_EMBEDDING, 
-                                       fine_tune=FINE_TUNE) 
+    transformer = Seq2SeqAttention(encoded_image_size=14, attention_dim=ATTENTION_DIM, embedding_dim=EMBEDDING_DIM, 
+                                   decoder_dim=DECODER_DIM, vocab_size=vocab_size, encoder_dim=ENCODER_DIM, dropout=DROPOUT_RATE,
+                                   alpha_c=ALPHA_C, embedding_matrix=embedding_mtx, train_embedding=TRAIN_EMBEDDING, 
+                                   fine_tune=FINE_TUNE) 
     # save as pickle for easy retrieval
     model_bin = ModelS3(is_sagemaker=is_sagemaker, logger=logger)
     
@@ -353,7 +357,7 @@ def main(args):
     
             # save as checkpoint
             fname = f'{MODEL_NAME}_ep{epoch + 1}_chkpoint_v{VERSION}.pt'
-            model_bin.save(state, os.path.join(LOCAL_PATH, fname), os.path.join(KEY_PATH, fname))
+            model_bin.save(state, os.path.join(CHEKCPOINTS_PATH, fname), os.path.join(KEY_PATH, fname))
 
     print('done!!')
     
@@ -399,9 +403,10 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=float(hyperparams.get('lr', 5.e-4)), help='learning rate for adam optimizer')
     parser.add_argument('--num_epochs', type=int, default=int(hyperparams.get('num_epochs', 10)), help='number of train and validation epochs')
     
-    parser.add_argument('--local_path', type=str, default='bin/', help='local path location for model repo')
+    parser.add_argument('--local_path', type=str, default='bin/', help='local path location for the model repo')
+    parser.add_argument('--checkpoints_path', type=str, default='checkpoints/', help="checkpoint path location for the model's checkpoint")
     parser.add_argument('--key_path', type=str, default='bin/', help='s3 path location for model repo')
-    parser.add_argument('--captions_path', type=str, default='captions/', help='s3 path location for generated test captions')
+    parser.add_argument('--captions_path', type=str, default='captions/', help='s3 path location for the generated test captions')
     parser.add_argument('--version', type=str, default='1.0', help='model versioning')
     
     args = parser.parse_args()
