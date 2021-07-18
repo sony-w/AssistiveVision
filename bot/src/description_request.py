@@ -1,4 +1,8 @@
 class DescriptionRequest:
+    """
+    Parses a request for the description of a tweet, does basic validation to
+    ensure that the request is for captioning and refers to a good target.
+    """
     def __init__(self, hook_event):
         if hook_event['for_user_id'] != '1407099013292306439':
             self._set_invalid(f'message for wrong user ({hook_event["for_user_id"]})')

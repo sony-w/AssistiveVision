@@ -6,6 +6,7 @@ import urllib
 
 from captioner_msft import get_caption
 from description_request import DescriptionRequest
+from reply_poster import ReplyPoster
 
 def get_twitter_api():
     print("Get credentials")
@@ -44,23 +45,10 @@ def get_img_text(client, img_bytes):
         }
     )
     return response
-    
-def post_reply(api, reply_to_id, msg, is_test = False):
-    print(f'replying to {reply_to_id} with: {msg}')
-    if len(msg) > 200:
-        print(f'truncating {len(msg)} character message')
-        msg = msg[:200] + '...'
-    if is_test:
-        print('not posting status since this is a test')
-        return type('',(object,),{"id": 13132})()
-    else:
-        status = api.update_status(status = msg, in_reply_to_status_id = reply_to_id, auto_populate_reply_metadata=True)
-        
-    return status
 
 def caption_to_description(cap):
     return f"I am just a bot, but I think it is: {cap}"
-    
+
 def labels_to_description(labels):
     print(labels)
     items = [f"I am {label['Confidence']:.2f} confident there is a {label['Name']}." for label in labels[:3]]
@@ -85,6 +73,7 @@ def handler(event, context):
     print(f'received request to describe tweet, req id: {req.tweet_id}, target id: {req.target_tweet_id}')
     
     api = get_twitter_api()
+    poster = ReplyPoster(api, max_reply_tweets=3, is_test=is_test)
     img_status = api.get_status(req.target_tweet_id)
     
     if not 'media' in img_status.entities or len(img_status.entities['media']) != 1:
@@ -102,13 +91,13 @@ def handler(event, context):
     cap = get_caption(img_bytes)
         
     description = caption_to_description(cap)
-    label_tweet = post_reply(api, req.tweet_id, description, is_test)
+    label_tweet_id = poster.post_reply(req.tweet_id, description)
     
     image_text = get_img_text(rekog_cli, img_bytes)
     if not 'TextDetections' in image_text or len(image_text['TextDetections']) == 0:
         print('no text found')
     else:
         text_desc = text_to_description(image_text['TextDetections'])
-        text_tweet = post_reply(api, label_tweet.id, text_desc, is_test)
+        text_tweet_id = poster.post_reply(label_tweet_id, text_desc)
     
     return ok_msg('success')
