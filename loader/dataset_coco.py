@@ -15,7 +15,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-from .coco import COCO
+from pycocotools.coco import COCO
 
 
 class COCODataset(Dataset):
@@ -95,7 +95,8 @@ class COCODataset(Dataset):
         #if vocabulary is None:
         #    self.vocabulary = self.__construct_vocab()
         #else:
-        self.vocabulary = vocabulary
+        if self.vocabulary is not None:
+            self.vocabulary = vocabulary
     
     
     def loadImageAndCorpus(self):
