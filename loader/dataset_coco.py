@@ -56,11 +56,16 @@ class COCODataset(Dataset):
         
         self.__getitem__fn = self.__getitem__corpus if ret_type == 'corpus' else self.__getitem__tensor
 
-        ann_path = os.path.join('annotations_coco', ''.join([f"captions_{self.dtype}2017", '.json']))
+        if self.dtype == 'test':
+            ann_path = os.path.join('annotations_coco', ''.join([f"image_info_{self.dtype}2017", '.json']))
+        else:
+            ann_path = os.path.join('annotations_coco', ''.join([f"captions_{self.dtype}2017", '.json']))
         coco_ds = COCO(annotation_file=ann_path)
         
+        self.df = pd.DataFrame()
         # load coco to dataframe
-        self.df = pd.DataFrame.from_dict(coco_ds.dataset['annotations'], orient='columns')
+        if self.dtype != 'test':
+            self.df = pd.DataFrame.from_dict(coco_ds.dataset['annotations'], orient='columns')
         images_df = pd.DataFrame.from_dict(coco_ds.dataset['images'], orient='columns')
 
         if not self.df.empty:
@@ -92,10 +97,7 @@ class COCODataset(Dataset):
         
         self.loadImageAndCorpus()
         
-        #if vocabulary is None:
-        #    self.vocabulary = self.__construct_vocab()
-        #else:
-        if self.vocabulary is not None:
+        if vocabulary is not None:
             self.vocabulary = vocabulary
     
     
@@ -228,44 +230,3 @@ class COCODataset(Dataset):
             return img_tensor, tokens_tensor, len(tokens), fname, image_id
         
         return img_tensor, fname, image_id
-
-    def __construct_vocab(self):
-        """
-        Generate vocabulary object from all the captions
-        
-        Returns:
-            vocab(Vocabulary): vocabulary object
-        """
-        
-        tokens = [self.startseq, self.endseq, self.unkseq, self.padseq]
-        max_len = 300 # limit to 300
-        
-        for _, token in self.df['tokens'].iteritems():
-            tokens.extend(token)
-            max_len = max(max_len, len(token) + 2)
-        
-        vocab = Vocabulary(tokens, max_len, self.unkseq)
-        
-        return vocab 
-    
-
-class Vocabulary:
-    
-    def __init__(self, tokens, max_len, unkseq):
-        
-        self.vocab = sorted(list(set(tokens)))
-        self.max_len = max_len
-        
-        self.word2idx = dict(map(reversed, enumerate(self.vocab)))
-        self.idx2word = dict(enumerate(self.vocab))
-        self.unkseq = unkseq
-    
-    def __call__(self, token):
-        
-        if not token in self.word2idx:
-            return self.word2idx[self.unkseq]
-        else:
-            return self.word2idx[token]
-        
-    def __len__(self):
-        return len(self.word2idx)
