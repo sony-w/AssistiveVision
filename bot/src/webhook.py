@@ -4,6 +4,7 @@ import os
 import tweepy
 import urllib
 
+from captioner_msft import get_caption
 from description_request import DescriptionRequest
 
 def get_twitter_api():
@@ -57,6 +58,9 @@ def post_reply(api, reply_to_id, msg, is_test = False):
         
     return status
 
+def caption_to_description(cap):
+    return f"I am just a bot, but I think it is: {cap}"
+    
 def labels_to_description(labels):
     print(labels)
     items = [f"I am {label['Confidence']:.2f} confident there is a {label['Name']}." for label in labels[:3]]
@@ -94,8 +98,10 @@ def handler(event, context):
     if not 'Labels' in labels or len(labels['Labels']) == 0:
         post_reply(api, req.tweet_id, "Sorry, but I couldn't identify anything in the image", is_test)
         return ok_msg('Description generation failed')
+
+    cap = get_caption(img_bytes)
         
-    description = labels_to_description(labels['Labels'])
+    description = caption_to_description(cap)
     label_tweet = post_reply(api, req.tweet_id, description, is_test)
     
     image_text = get_img_text(rekog_cli, img_bytes)
