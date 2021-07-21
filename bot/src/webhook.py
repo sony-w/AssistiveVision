@@ -74,30 +74,36 @@ def handler(event, context):
     
     api = get_twitter_api()
     poster = ReplyPoster(api, max_reply_tweets=3, is_test=is_test)
-    img_status = api.get_status(req.target_tweet_id)
+    img_status = api.get_status(req.target_tweet_id, tweet_mode='extended')
     
-    if not 'media' in img_status.entities or len(img_status.entities['media']) != 1:
-        print(f'no media or multiple media: {img_status.entities}')
+    if not 'media' in img_status.extended_entities:
+        print(f'no media or multiple media: {img_status.extended_entities}')
         return ok_msg('We can only describe a single image.')
-    img_url = img_status.entities['media'][0]['media_url_https']
-    img_bytes = urllib.request.urlopen(img_url).read()
     
-    rekog_cli = boto3.client('rekognition')
-    labels = get_img_labels(rekog_cli, img_bytes)
-    if not 'Labels' in labels or len(labels['Labels']) == 0:
-        post_reply(api, req.tweet_id, "Sorry, but I couldn't identify anything in the image", is_test)
-        return ok_msg('Description generation failed')
-
-    cap = get_caption(img_bytes)
+    reply_tweet_id = req.tweet_id
+    img_urls = [x['media_url_https'] for x in img_status.extended_entities['media']]
+    for idx, img_url in enumerate(img_urls):
+        img_num_msg = ''
+        if len(img_urls) > 1:
+            img_num_msg = f'Image {idx+1} of {len(img_urls)}: '
+        img_bytes = urllib.request.urlopen(img_url).read()
         
-    description = caption_to_description(cap)
-    label_tweet_id = poster.post_reply(req.tweet_id, description)
-    
-    image_text = get_img_text(rekog_cli, img_bytes)
-    if not 'TextDetections' in image_text or len(image_text['TextDetections']) == 0:
-        print('no text found')
-    else:
-        text_desc = text_to_description(image_text['TextDetections'])
-        text_tweet_id = poster.post_reply(label_tweet_id, text_desc)
+        rekog_cli = boto3.client('rekognition')
+        labels = get_img_labels(rekog_cli, img_bytes)
+        if not 'Labels' in labels or len(labels['Labels']) == 0:
+            post_reply(reply_tweet_id, "Sorry, but I couldn't identify anything in the image", is_test)
+            return ok_msg('Description generation failed')
+
+        cap = get_caption(img_bytes)
+            
+        description = img_num_msg + caption_to_description(cap)
+        reply_tweet_id = poster.post_reply(reply_tweet_id, description)
+        
+        image_text = get_img_text(rekog_cli, img_bytes)
+        if not 'TextDetections' in image_text or len(image_text['TextDetections']) == 0:
+            print('no text found')
+        else:
+            text_desc = text_to_description(image_text['TextDetections'])
+            reply_tweet_id = poster.post_reply(reply_tweet_id, text_desc)
     
     return ok_msg('success')
