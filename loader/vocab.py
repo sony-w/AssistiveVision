@@ -32,6 +32,8 @@ def construct_vocab(self, *args, remove_punctuation=True, threshold=5,
     counter = Counter()
 
     tokens = [startseq, endseq, unkseq, padseq]
+    counter.update(tokens)
+    
     max_len = 300 # limit to 300
 
     for df in args:
@@ -43,7 +45,7 @@ def construct_vocab(self, *args, remove_punctuation=True, threshold=5,
                 counter.update(token)
                 max_len = max(max_len, len(token) + 2)
 
-    tokens = [token for token, cnt in counter.items() if cnt >= threshold]
+    tokens = [token for token, cnt in counter.items() if token in [startseq, endseq, unkseq, padseq] or cnt >= threshold]
     vocab = Vocabulary(tokens, max_len, unkseq)
 
     return vocab

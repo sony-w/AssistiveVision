@@ -4,3 +4,4 @@ torchvision
 nltk
 matplotlib
 ipywidgets
+cython
