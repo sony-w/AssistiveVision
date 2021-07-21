@@ -4,7 +4,8 @@ import numpy as np
 from collections import Counter
 
 
-def construct_vocab(self, *args, remove_punctuation=True, threshold=5):
+def construct_vocab(self, *args, remove_punctuation=True, threshold=5,
+                   startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>'):
     """
     Generate vocabulary object from all the captions
     Parameters:
@@ -23,9 +24,16 @@ def construct_vocab(self, *args, remove_punctuation=True, threshold=5):
     punctuations = ["''", "'", "``", "`", "-LRB-", "-RRB-", "-LCB-", "-RCB-", \
                     ".", "?", "!", ",", ":", "-", "--", "...", ";"]
 
+    startseq = startseq.strip()
+    endseq = endseq.strip()
+    unkseq = unkseq.strip()
+    padseq = padseq.strip()
+    
     counter = Counter()
 
-    tokens = [self.startseq, self.endseq, self.unkseq, self.padseq]
+    tokens = [startseq, endseq, unkseq, padseq]
+    counter.update(tokens)
+    
     max_len = 300 # limit to 300
 
     for df in args:
@@ -37,8 +45,8 @@ def construct_vocab(self, *args, remove_punctuation=True, threshold=5):
                 counter.update(token)
                 max_len = max(max_len, len(token) + 2)
 
-    tokens = [token for token, cnt in counter.items() if cnt >= threshold]
-    vocab = Vocabulary(tokens, max_len, self.unkseq)
+    tokens = [token for token, cnt in counter.items() if token in [startseq, endseq, unkseq, padseq] or cnt >= threshold]
+    vocab = Vocabulary(tokens, max_len, unkseq)
 
     return vocab
 
