@@ -4,3 +4,6 @@ torchvision
 nltk
 matplotlib
 ipywidgets
+cython
+webcolors
+opencv-python-headless

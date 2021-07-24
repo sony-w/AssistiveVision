@@ -2,21 +2,20 @@ import json
 import os
 import requests
 
-# place your Azure COGS CV subscription API Key and Endpoint below
+# the keys below need to be set in the lambda's environment
 API_KEY = os.getenv("msft_api_key")
 ENDPOINT = os.getenv("msft_endpoint")
 
 ANALYZE_URL = ENDPOINT + "/vision/v3.1/analyze"
 
 def get_caption(img_bytes):
-
     """
     Function to get image caption when path to image file is given.
     Note: API_KEY and ANALYZE_URL need to be defined before calling this function.
 
     Parameters
     ----------
-    path_to_image   : path of image file to be analyzed
+    img_bytes  : The bytes of the image to caption
 
     Output
     -------

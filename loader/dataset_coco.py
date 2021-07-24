@@ -171,6 +171,8 @@ class COCODataset(Dataset):
         """
         
         row = self.df.iloc[idx]
+        
+        image_id = row['image_id']
         fname = row['file_name']
         
         fpath = os.path.join('coco', self.dtype, fname)
@@ -181,9 +183,9 @@ class COCODataset(Dataset):
             self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
         if all([r in row for r in ['tokens', 'tokens_count']]):
-            return img, row['tokens'], row['tokens_count'], fname
+            return img, row['tokens'], row['tokens_count'], fname, image_id
         
-        return img, fname
+        return img, fname, image_id
 
     def __getitem__tensor(self, idx: int):
         """
