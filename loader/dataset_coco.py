@@ -14,8 +14,10 @@ from .images import ImageS3
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-
 from pycocotools.coco import COCO
+
+from detectron2.modeling.postprocessing import detector_postprocess
+from detectron2.modeling.roi_heads.fast_rcnn import FastRCNNOutputs, fast_rcnn_inference_single_image
 
 
 class COCODataset(Dataset):
@@ -26,6 +28,7 @@ class COCODataset(Dataset):
     def __init__(self, bucket='assistive-vision', vocabulary=None, dtype='train',
                  startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>',
                  transformations=None,
+                 predictor=None,
                  copy_img_to_mem=False,
                  ret_type='tensor',
                  ret_raw=False,
@@ -85,6 +88,7 @@ class COCODataset(Dataset):
         # use multiprocessing Manager for parallelization
         self.blob = mp.Manager().dict()
         
+        self.predictor = predictor
         self.transformations = transformations if transformations is not None else transforms.Compose(
         [
             transforms.ToTensor()
@@ -157,6 +161,73 @@ class COCODataset(Dataset):
     def __len__(self):
         return len(self.df)
 
+    def __extract_features(self, img):
+        """
+        Extract features from object detection
+        Parameters:
+            img(opencv): opencv type image
+        Returns:
+            instances(tensor): object detection predictions
+            features(tensor): object detection features 
+        """
+        with torch.no_grad():
+            raw_height, raw_width = img.shape[:2]
+
+            image = predictor.transform_gen.get_transform(img).apply_image(img)
+            image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
+
+            inputs = [{"image": image, "height": raw_height, "width": raw_width}]
+            images = predictor.model.preprocess_image(inputs)
+
+            # Run Backbone Res1-Res4
+            features = predictor.model.backbone(images.tensor)
+
+            # Generate proposals with RPN
+            proposals, _ = predictor.model.proposal_generator(images, features, None)
+            proposal = proposals[0]
+
+            # Run RoI head for each proposal (RoI Pooling + Res5)
+            proposal_boxes = [x.proposal_boxes for x in proposals]
+            features = [features[f] for f in predictor.model.roi_heads.in_features]
+            box_features = predictor.model.roi_heads._shared_roi_transform(
+                features, proposal_boxes
+            )
+            feature_pooled = box_features.mean(dim=[2, 3])  # pooled to 1x1
+
+            # Predict classes and boxes for each proposal.
+            pred_class_logits, pred_attr_logits, pred_proposal_deltas = predictor.model.roi_heads.box_predictor(feature_pooled)
+            outputs = FastRCNNOutputs(
+                predictor.model.roi_heads.box2box_transform,
+                pred_class_logits,
+                pred_proposal_deltas,
+                proposals,
+                predictor.model.roi_heads.smooth_l1_beta,
+            )
+
+            probs = outputs.predict_probs()[0]
+            boxes = outputs.predict_boxes()[0]
+
+            attr_prob = pred_attr_logits[..., :-1].softmax(-1)
+            max_attr_prob, max_attr_label = attr_prob.max(-1)
+
+            # NMS
+            for nms_thresh in np.arange(0.5, 1.0, 0.1):
+                instances, ids = fast_rcnn_inference_single_image(
+                    boxes, probs, image.shape[1:], 
+                    score_thresh=0.2, nms_thresh=nms_thresh, topk_per_image=NUM_OBJECTS
+                )
+                if len(ids) == NUM_OBJECTS:
+                    break
+
+            instances = detector_postprocess(instances, raw_height, raw_width)
+            roi_features = feature_pooled[ids].detach()
+            max_attr_prob = max_attr_prob[ids].detach()
+            max_attr_label = max_attr_label[ids].detach()
+            instances.attr_scores = max_attr_prob
+            instances.attr_classes = max_attr_label
+
+            return instances, roi_features
+    
     def __getitem__corpus(self, idx: int):
         """
         Retrieve image blob, tokens, and tokens count from given index in raw format
@@ -178,9 +249,14 @@ class COCODataset(Dataset):
         fpath = os.path.join('coco', self.dtype, fname)
         if self.is_sagemaker:
             fpath = os.path.join('/opt/ml/input/data', self.dtype, fname)
-
-        img = self.transformations(
-            self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
+        
+        img = None
+        if self.predictor:
+            _, img = self.__extract_features(
+                self.blob.get(fname, self.imageS3.getImageCV(fpath))).to(self.device)
+        else:
+            img = self.transformations(
+                self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
         if all([r in row for r in ['tokens', 'tokens_count']]):
             return img, row['tokens'], row['tokens_count'], fname, image_id
@@ -209,8 +285,13 @@ class COCODataset(Dataset):
         if self.is_sagemaker:
             fpath = os.path.join('/opt/ml/input/data', self.dtype, fname)
 
-        img_tensor = self.transformations(
-            self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
+        img_tensor = None
+        if self.predictor:
+            _, img_tensor = self.__extract_features(
+                self.blob.get(fname, self.imageS3.getImageCV(fpath))).to(self.device)
+        else:
+            img_tensor = self.transformations(
+                self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
         
         ## TODO: use better token embedding
         if all([r in row for r in ['tokens']]):

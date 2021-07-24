@@ -3,6 +3,7 @@ __version__ = '1.0'
 
 import boto3
 import numpy as np
+import cv2
 
 from PIL import Image
 from io import BytesIO
@@ -42,6 +43,34 @@ class ImageS3(BucketS3):
             
             #image = np.asarray(bytearray(response.read()), dtype="uint8")
             #image = cv2.imdecode(image, cv2.IMREAD_COLOR)
+
+        except ClientError as e:
+            self.logger.error(e)
+            return None
+
+        return image
+    
+    
+    def getImageCV(self, key_path):
+        """
+        Retrieve actual image with OpenCV
+        
+        Parameters:
+            key_path(string): image file path in S3
+        
+        Returns:
+            image: numpy array of image's pixel value with dimension of (height, width, depth)
+        """
+        try:
+            image = None
+            
+            if self.is_sagemaker:
+                image = cv2.imread(key_path)
+            else:
+                response = self.s3_client.get_object(Bucket=self.bucket, Key=key_path)['Body'].read()
+            
+                image = np.asarray(bytearray(response), dtype="uint8")
+                image = cv2.imdecode(image, cv2.IMREAD_COLOR)
 
         except ClientError as e:
             self.logger.error(e)
