@@ -29,6 +29,7 @@ class COCODataset(Dataset):
                  startseq='<start>', endseq='<end>', unkseq='<unk>', padseq='<pad>',
                  transformations=None,
                  predictor=None,
+                 num_objects=10,
                  copy_img_to_mem=False,
                  ret_type='tensor',
                  ret_raw=False,
@@ -89,6 +90,7 @@ class COCODataset(Dataset):
         self.blob = mp.Manager().dict()
         
         self.predictor = predictor
+        self.num_objects = num_objects
         self.transformations = transformations if transformations is not None else transforms.Compose(
         [
             transforms.ToTensor()
@@ -173,35 +175,35 @@ class COCODataset(Dataset):
         with torch.no_grad():
             raw_height, raw_width = img.shape[:2]
 
-            image = predictor.transform_gen.get_transform(img).apply_image(img)
+            image = self.predictor.transform_gen.get_transform(img).apply_image(img)
             image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
 
             inputs = [{"image": image, "height": raw_height, "width": raw_width}]
-            images = predictor.model.preprocess_image(inputs)
+            images = self.predictor.model.preprocess_image(inputs)
 
             # Run Backbone Res1-Res4
-            features = predictor.model.backbone(images.tensor)
+            features = self.predictor.model.backbone(images.tensor)
 
             # Generate proposals with RPN
-            proposals, _ = predictor.model.proposal_generator(images, features, None)
+            proposals, _ = self.predictor.model.proposal_generator(images, features, None)
             proposal = proposals[0]
 
             # Run RoI head for each proposal (RoI Pooling + Res5)
             proposal_boxes = [x.proposal_boxes for x in proposals]
-            features = [features[f] for f in predictor.model.roi_heads.in_features]
-            box_features = predictor.model.roi_heads._shared_roi_transform(
+            features = [features[f] for f in self.predictor.model.roi_heads.in_features]
+            box_features = self.predictor.model.roi_heads._shared_roi_transform(
                 features, proposal_boxes
             )
             feature_pooled = box_features.mean(dim=[2, 3])  # pooled to 1x1
 
             # Predict classes and boxes for each proposal.
-            pred_class_logits, pred_attr_logits, pred_proposal_deltas = predictor.model.roi_heads.box_predictor(feature_pooled)
+            pred_class_logits, pred_attr_logits, pred_proposal_deltas = self.predictor.model.roi_heads.box_predictor(feature_pooled)
             outputs = FastRCNNOutputs(
-                predictor.model.roi_heads.box2box_transform,
+                self.predictor.model.roi_heads.box2box_transform,
                 pred_class_logits,
                 pred_proposal_deltas,
                 proposals,
-                predictor.model.roi_heads.smooth_l1_beta,
+                self.predictor.model.roi_heads.smooth_l1_beta
             )
 
             probs = outputs.predict_probs()[0]
@@ -214,9 +216,9 @@ class COCODataset(Dataset):
             for nms_thresh in np.arange(0.5, 1.0, 0.1):
                 instances, ids = fast_rcnn_inference_single_image(
                     boxes, probs, image.shape[1:], 
-                    score_thresh=0.2, nms_thresh=nms_thresh, topk_per_image=NUM_OBJECTS
+                    score_thresh=0.2, nms_thresh=nms_thresh, topk_per_image=self.num_objects
                 )
-                if len(ids) == NUM_OBJECTS:
+                if len(ids) == self.num_objects:
                     break
 
             instances = detector_postprocess(instances, raw_height, raw_width)
@@ -226,7 +228,7 @@ class COCODataset(Dataset):
             instances.attr_scores = max_attr_prob
             instances.attr_classes = max_attr_label
 
-            return instances, roi_features
+            return instances.to(self.device), roi_features.to(self.device)
     
     def __getitem__corpus(self, idx: int):
         """
@@ -253,7 +255,7 @@ class COCODataset(Dataset):
         img = None
         if self.predictor:
             _, img = self.__extract_features(
-                self.blob.get(fname, self.imageS3.getImageCV(fpath))).to(self.device)
+                self.blob.get(fname, self.imageS3.getImageCV(fpath)))
         else:
             img = self.transformations(
                 self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)
@@ -288,7 +290,7 @@ class COCODataset(Dataset):
         img_tensor = None
         if self.predictor:
             _, img_tensor = self.__extract_features(
-                self.blob.get(fname, self.imageS3.getImageCV(fpath))).to(self.device)
+                self.blob.get(fname, self.imageS3.getImageCV(fpath)))
         else:
             img_tensor = self.transformations(
                 self.blob.get(fname, self.imageS3.getImage(fpath))).to(self.device)

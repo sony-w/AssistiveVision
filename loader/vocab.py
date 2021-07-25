@@ -34,7 +34,7 @@ def construct_vocab(self, *args, remove_punctuation=True, threshold=5,
     tokens = [startseq, endseq, unkseq, padseq]
     counter.update(tokens)
     
-    max_len = 300 # limit to 300
+    max_len = 0 # limit to 300
 
     for df in args:
         if all([col in df for col in ['tokens']]):
