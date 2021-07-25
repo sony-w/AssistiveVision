@@ -43,7 +43,7 @@ RUN wget -q -O  /content/model_data/lorra.yaml https://dl.fbaipublicfiles.com/py
 RUN wget -q -O  /content/model_data/detectron_model.yaml https://dl.fbaipublicfiles.com/pythia/detectron_model/detectron_model.yaml
 RUN wget -q -O  /content/model_data/detectron_weights.tar.gz https://dl.fbaipublicfiles.com/pythia/data/detectron_weights.tar.gz
 RUN wget -q -O  /content/model_data/wiki.en.bin https://dl.fbaipublicfiles.com/pythia/pretrained_models/fasttext/wiki.en.bin
-RUN tar xf   /content/model_data/detectron_weights.tar.gz
+RUN tar xf /content/model_data/detectron_weights.tar.gz
 
 # Install Apache Arrow
 # RUN wget https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb && \
@@ -105,7 +105,7 @@ RUN cd /content && \
     python3 setup.py build && \
     python3 setup.py develop
 
-RUN pip3 install google-api-python-client
+RUN pip3 install google-api-python-client boto3
 
 # Set some environment variables. PYTHONUNBUFFERED keeps Python from buffering our standard
 # output stream, which means that logs can be delivered to the user quickly. PYTHONDONTWRITEBYTECODE

@@ -5,25 +5,18 @@ from __future__ import print_function
 
 import base64
 import cv2
-import io
 import flask
 import gc
-import json
 import numpy as np
-import os
-import pandas as pd
-import pickle
-import requests
-import signal
 import subprocess
-import sys
+import tempfile
 import torch
 import torch.nn.functional as F
 import torchvision.models as models
 import torchvision.transforms as transforms
-import traceback
 import yaml
 
+from flask import request
 from PIL import Image
 from IPython.display import display, HTML, clear_output
 from io import BytesIO
@@ -135,15 +128,14 @@ class LoRRADemo:
         new_sd[k1] = v
     return new_sd
   
-  def predict(self, url, question):
+  def predict(self, pil_image, question):
     with torch.no_grad():
-      detectron_features = self.get_detectron_features(url)
-      resnet_features = self.get_resnet_features(url)
+      detectron_features = self.get_detectron_features(pil_image)
+      resnet_features = self.get_resnet_features(pil_image)
 
       sample = Sample()
   
-      context = self.get_fasttext_vectors()
-#       context = self.context_processor({"tokens": ocr_tokens})
+      context = self.load_fasttext_vectors(pil_image)
       sample.context = context["text"]
       sample.context_tokens = context["tokens"]
       sample.context_feature_0 = context["text"]
@@ -199,12 +191,14 @@ class LoRRADemo:
     
     return probs, answers
   
-  def _get_ocr_tokens(self, url):
-    vision_service = build("vision", "v1", developerKey='<DEVKEY>')
+  def _get_ocr_tokens(self, pil_image):
+    vision_service = build("vision", "v1", developerKey='AIzaSyAQZrpzu66Zgzy3pPNyUynGlnQ5Spx4r8o')
+    buffered = BytesIO()
+    pil_image.save(buffered, format="JPEG")
     request = vision_service.images().annotate(body={
       'requests': [{
         'image': {
-            'content': self._get_image_bytes(url)
+            'content': base64.b64encode(buffered.getvalue()).decode('utf-8')
         },
         'features': [{
             'type': 'TEXT_DETECTION',
@@ -226,32 +220,27 @@ class LoRRADemo:
       tokens += token['description'].split('\n')
     return tokens
   
-  
-  def dump_fasttext_vectors(self, url):
-    ocr_tokens = self._get_ocr_tokens(url)
+  def load_fasttext_vectors(self, pil_image):
+    ocr_tokens = self._get_ocr_tokens(pil_image)
     ocr_tokens = [
         self.ocr_token_processor({"text": token})["text"]
         for token in ocr_tokens
     ]
 
-    print("OCR tokens returned by cloud vision:", ocr_tokens)
+    vectors = None
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+      tmp.write("\n".join(ocr_tokens).encode('utf-8'))
+      tmp.close()
 
-    with open("/content/tokens.txt", "w") as f:
-      f.write("\n".join(ocr_tokens))
-      
-    cmd = "/content/fastText/fasttext print-word-vectors /content/pythia/pythia/.vector_cache/wiki.en.bin < /content/tokens.txt"
+      cmd = f"/content/fastText/fasttext print-word-vectors /content/pythia/pythia/.vector_cache/wiki.en.bin < {tmp.name}"
+      output = subprocess.check_output(cmd, shell=True)
+      vectors = output.decode("utf-8")
+
+      tmp.delete = True
     
-    output = subprocess.check_output(cmd, shell=True)
-    
-    with open("/content/vectors.txt", "w") as f:
-      f.write(output.decode("utf-8"))
-    
-    self.ocr_tokens = ocr_tokens
-    
-  def get_fasttext_vectors(self):
-    with open("/content/vectors.txt", "r") as f:
-      output = f.read()
-   
+    return self.get_fasttext_vectors(vectors, ocr_tokens)
+
+  def get_fasttext_vectors(self, output, ocr_tokens):
     vectors = output.split("\n")
     vectors = [np.array(list(map(float, vector.split(" ")[1:-1])))
                for vector in vectors]
@@ -261,7 +250,6 @@ class LoRRADemo:
         dtype=torch.float,
     )
     
-    ocr_tokens = self.ocr_tokens
     length = min(50, len(ocr_tokens))
     ocr_tokens = ocr_tokens[:length]
     
@@ -291,28 +279,8 @@ class LoRRADemo:
     model.to("cuda")
     model.eval()
     return model
-  
-  def get_actual_image(self, image_path):
-    if image_path.startswith('http'):
-      path = requests.get(image_path, stream=True).raw
-    else:
-      path = image_path
-
-    return path
-  
-  def _get_image_bytes(self, image_path):
-    image_path = self.get_actual_image(image_path)
     
-    with BytesIO() as output:
-        with Image.open(image_path) as img:
-            img.save(output, 'JPEG')
-        data = base64.b64encode(output.getvalue()).decode('utf-8')
-    return data
-    
-  def _image_transform(self, image_path):
-      path = self.get_actual_image(image_path)
-
-      img = Image.open(path)
+  def _image_transform(self, img):
       im = np.array(img).astype(np.float32)
       im = im[:, :, ::-1]
       im -= np.array([102.9801, 115.9465, 122.7717])
@@ -372,9 +340,8 @@ class LoRRADemo:
       y = x1 / x1_sum
       return y
    
-  def get_resnet_features(self, image_path):
-      path = self.get_actual_image(image_path)
-      img = Image.open(path).convert("RGB")
+  def get_resnet_features(self, pil_image):
+      img = pil_image.convert("RGB")
       img_transform = self.data_transforms(img)
       
       if img_transform.shape[0] == 1:
@@ -385,8 +352,8 @@ class LoRRADemo:
       features = features.view(196, 2048)
       return features
     
-  def get_detectron_features(self, image_path):
-      im, im_scale = self._image_transform(image_path)
+  def get_detectron_features(self, pil_image):
+      im, im_scale = self._image_transform(pil_image)
       img_tensor, im_scales = [im], [im_scale]
       current_img_list = to_image_list(img_tensor, size_divisible=32)
       current_img_list = current_img_list.to('cuda')
@@ -432,21 +399,14 @@ class LoRRADemo:
 class LorraService(object):
 
     @classmethod
-    def predict(cls, image_url, question):
-        """For the input, do the predictions and return them.
-
-        Args:
-            input (a pandas dataframe): The data on which to do the predictions. There will be
-                one prediction per row in the dataframe"""
+    def predict(cls, pil_image, question):
+        """For the input, do the prediction and return them."""
         demo = LoRRADemo()
-        
-        image_path = demo.get_actual_image(image_url)
-        image = Image.open(image_path)
+
         demo.init_ocr_processor()
-        demo.dump_fasttext_vectors(image_url)
         demo.build()
 
-        return demo.predict(image_url, question)
+        return demo.predict(pil_image, question)
 
 
 # The flask app for serving predictions
@@ -465,22 +425,23 @@ def ping():
 
 @app.route("/invocations", methods=["POST"])
 def transformation():
-    """Do an inference on a single batch of data. In this sample server, we take data as CSV, convert
-    it to a pandas data frame for internal use and then convert the predictions back to CSV (which really
-    just means one prediction per line, since there's a single column.
-    """
-    data = None
+    """Do an inference on a single image."""
+    file = request.files['image']
+    # Read the image via file.stream
+    img = Image.open(file.stream)
+    payload = request.form.to_dict()
+    question = payload['question']
 
-    # Convert from CSV to pandas
-    if flask.request.content_type == "application/json":
-        data = flask.request.get_json()
-    else:
-        return flask.Response(
-            response="This predictor only supports json requests", status=415, mimetype="text/plain"
-        )
+    # # Convert from CSV to pandas
+    # if flask.request.content_type == "application/json":
+    #     data = flask.request.get_json()
+    # else:
+    #     return flask.Response(
+    #         response="This predictor only supports json requests", status=415, mimetype="text/plain"
+    #     )
 
     # Do the prediction
-    scores, answers = LorraService.predict(data['url'], data['question'])
+    scores, answers = LorraService.predict(img, question)
 
     return { 'scores': scores, 'answers': answers }
 
